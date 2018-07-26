@@ -72,9 +72,9 @@ For further information have a look at the [opnsense documentation](https://docs
 
 **Check for updates**
 ```shell
-./check_pve.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
 CRITICAL - 42 pending updates. Subsequent reboot required.
 
-./check_pve.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
 WARNING - 14 pending updates.
 ```
