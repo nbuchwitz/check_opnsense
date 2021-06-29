@@ -40,7 +40,7 @@ optional arguments:
 API Options:
   -H HOSTNAME, --hostname HOSTNAME
                         OPNsense hostname or ip address
-  -H PORT, --port PORT  OPNsense https-api port
+  -p PORT, --port PORT  OPNsense https-api port
                         OPNsense hostname or ip address
   --api-key API_KEY     API key (See OPNsense user manager)
   --api-secret API_SECRET
