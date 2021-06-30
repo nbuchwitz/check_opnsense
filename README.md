@@ -28,7 +28,7 @@ yum install python-enum34 python-requests
 The ``icinga2`` folder contains the command defintion and service examples for use with Icinga2.
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME --api-key API_KEY --api-secret
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret
                          API_SECRET [-k] -m {updates} [-w TRESHOLD_WARNING]
                          [-c TRESHOLD_CRITICAL]
 
@@ -39,6 +39,8 @@ optional arguments:
 
 API Options:
   -H HOSTNAME, --hostname HOSTNAME
+                        OPNsense hostname or ip address
+  -p PORT, --port PORT  OPNsense https-api port
                         OPNsense hostname or ip address
   --api-key API_KEY     API key (See OPNsense user manager)
   --api-secret API_SECRET

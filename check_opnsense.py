@@ -51,7 +51,7 @@ class NagiosState(Enum):
 
 class CheckOPNsense:
     VERSION = '0.1.0'
-    API_URL = 'https://{}/api/{}'
+    API_URL = 'https://{}:{}/api/{}'
 
     options = {}
     perfdata = []
@@ -74,7 +74,7 @@ class CheckOPNsense:
         sys.exit(returnCode.value)
 
     def getURL(self, part):
-        return self.API_URL.format(self.options.hostname, part)
+        return self.API_URL.format(self.options.hostname, self.options.port, part)
 
     def request(self, url, method='get', **kwargs):
         response = None
@@ -134,6 +134,7 @@ class CheckOPNsense:
         api_opts = p.add_argument_group('API Options')
 
         api_opts.add_argument("-H", "--hostname", required=True, help="OPNsense hostname or ip address")
+        api_opts.add_argument("-p", "--port", required=False, dest='port', help="OPNsense https-api port", default=80)
         api_opts.add_argument("--api-key", dest='api_key', required=True,
                               help="API key (See OPNsense user manager)")
         api_opts.add_argument("--api-secret", dest='api_secret', required=True,
@@ -178,3 +179,4 @@ class CheckOPNsense:
 
 opnsense = CheckOPNsense()
 opnsense.check()
+
