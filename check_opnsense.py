@@ -30,6 +30,7 @@ try:
     from enum import Enum
     import argparse
     import json
+    sys.path.append('/usr/lib/python3/dist-packages')
     import requests
     import urllib3
 
