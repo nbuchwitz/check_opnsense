@@ -11,6 +11,7 @@ This check command depends on the following python modules:
 **Installation on Debian / Ubuntu**
 ```
 apt install python-enum34 python-requests
+apt install python-enum34 python3-requests
 ```
 
 **Installation on Redhat 6 / CentOS 6**
