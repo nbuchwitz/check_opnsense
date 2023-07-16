@@ -59,7 +59,7 @@ Check Options:
 
 ## Create API credentials
 
-Go to the user manager and select the user you want to use for API access. Click the ``+`` icon in the ``API keys`` section to add a new API key, which triggers a download of a tex file containing the key and secret.
+Go to the user manager and select the user you want to use for API access. Click the ``+`` icon in the ``API keys`` section to add a new API key, which triggers a download of a text file containing the key and secret.
 
 This file should look similar to this one:
 
