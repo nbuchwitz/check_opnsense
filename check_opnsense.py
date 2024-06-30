@@ -3,9 +3,9 @@
 
 # ------------------------------------------------------------------------------
 # check_opnsense.py - A check plugin for monitoring OPNsense firewalls.
-# Copyright (C) 2018  Nicolai Buchwitz <nb@tipi-net.de>
+# Copyright (C) 2018 - 2024  Nicolai Buchwitz <nb@tipi-net.de>
 #
-# Version: 0.1.1
+# Version: 0.2.0
 #
 # ------------------------------------------------------------------------------
 # This program is free software; you can redistribute it and/or
@@ -55,7 +55,7 @@ class CheckState(Enum):
 class CheckOPNsense:
     """Check command for OPNsense."""
 
-    VERSION = "0.1.0"
+    VERSION = "0.2.0"
     API_URL = "https://{host}:{port}/api/{uri}"
 
     def check_output(self) -> None:
