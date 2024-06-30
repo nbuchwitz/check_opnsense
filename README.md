@@ -10,17 +10,17 @@ This check command depends on the following python modules:
 
 **Installation on Debian / Ubuntu**
 ```
-apt install python-enum34 python-requests
+apt install python3 python3-requests
 ```
 
-**Installation on Redhat 6 / CentOS 6**
+**Installation on Rocky / Alma Linux 9**
 ```
-yum install python-argparse python-enum34 python34-requests
+yum install python3 python3-requests
 ```
 
-**Installation on Redhat 7 / CentOS 7**
+**Installation on FreeBSD**
 ```
-yum install python-enum34 python-requests
+pkg install python3 py39-requests
 ```
 
 ## Usage
