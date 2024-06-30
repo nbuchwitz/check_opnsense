@@ -23,23 +23,20 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 # ------------------------------------------------------------------------------
 
-from __future__ import print_function
 import sys
 
 try:
     from enum import Enum
     import argparse
-    import json
     import requests
-    import urllib3
-
     from requests.packages.urllib3.exceptions import InsecureRequestWarning
-
-    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 except ImportError as e:
     print("Missing python module: {}".format(e.message))
     sys.exit(255)
+
+# Timeout for API requests in seconds
+CHECK_API_TIMEOUT = 30
 
 
 class NagiosState(Enum):
@@ -51,7 +48,7 @@ class NagiosState(Enum):
 
 class CheckOPNsense:
     VERSION = '0.1.0'
-    API_URL = 'https://{}:{}/api/{}'
+    API_URL = 'https://{host}:{port}/api/{uri}'
 
     options = {}
     perfdata = []
@@ -74,7 +71,10 @@ class CheckOPNsense:
         sys.exit(returnCode.value)
 
     def getURL(self, part):
-        return self.API_URL.format(self.options.hostname, self.options.port, part)
+        return self.API_URL.format(
+            host=self.options.hostname,
+            port=self.options.port,
+            uri=part)
 
     def request(self, url, method='get', **kwargs):
         response = None
@@ -85,14 +85,15 @@ class CheckOPNsense:
                     verify=not self.options.api_insecure,
                     auth=(self.options.api_key, self.options.api_secret),
                     data=kwargs.get('data', None),
-                    timeout=5
+                    timeout=CHECK_API_TIMEOUT,
                 )
             elif method == 'get':
                 response = requests.get(
                     url,
                     auth=(self.options.api_key, self.options.api_secret),
                     verify=not self.options.api_insecure,
-                    params=kwargs.get('params', None)
+                    params=kwargs.get('params', None),
+                    timeout=CHECK_API_TIMEOUT,
                 )
             else:
                 self.output(NagiosState.CRITICAL, "Unsupport request method: {}".format(method))
@@ -100,7 +101,8 @@ class CheckOPNsense:
             self.output(NagiosState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
         except requests.exceptions.SSLError:
             self.output(NagiosState.UNKNOWN, "Could not connect to OPNsense: Certificate validation failed")
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
+            print(e)
             self.output(NagiosState.UNKNOWN, "Could not connect to OPNsense: Failed to resolve hostname")
 
         if response.ok:
@@ -134,7 +136,7 @@ class CheckOPNsense:
         api_opts = p.add_argument_group('API Options')
 
         api_opts.add_argument("-H", "--hostname", required=True, help="OPNsense hostname or ip address")
-        api_opts.add_argument("-p", "--port", required=False, dest='port', help="OPNsense https-api port", default=80)
+        api_opts.add_argument("-p", "--port", required=False, dest='port', help="OPNsense https-api port", default=443, type=int)
         api_opts.add_argument("--api-key", dest='api_key', required=True,
                               help="API key (See OPNsense user manager)")
         api_opts.add_argument("--api-secret", dest='api_secret', required=True,
@@ -175,6 +177,10 @@ class CheckOPNsense:
 
     def __init__(self):
         self.parseOptions()
+
+        if self.options.api_insecure:
+            # disable urllib3 warning about insecure requests
+            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 
 opnsense = CheckOPNsense()
