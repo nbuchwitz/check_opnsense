@@ -23,23 +23,29 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 # ------------------------------------------------------------------------------
 
+"""OPNsense monitoring check command for various monitoring systems like Icinga and others."""
+
 import sys
+from typing import Dict, Union
 
 try:
-    from enum import Enum
     import argparse
+    from enum import Enum
+
     import requests
     from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 except ImportError as e:
-    print("Missing python module: {}".format(e.message))
+    print(f"Missing python module: {e.msg}")
     sys.exit(255)
 
 # Timeout for API requests in seconds
 CHECK_API_TIMEOUT = 30
 
 
-class NagiosState(Enum):
+class CheckState(Enum):
+    """Check return values."""
+
     OK = 0
     WARNING = 1
     CRITICAL = 2
@@ -47,33 +53,32 @@ class NagiosState(Enum):
 
 
 class CheckOPNsense:
+    """Check command for OPNsense."""
+
     VERSION = "0.1.0"
     API_URL = "https://{host}:{port}/api/{uri}"
 
-    options = {}
-    perfdata = []
-    checkResult = -1
-    checkMessage = ""
-
-    def checkOutput(self):
-        message = self.checkMessage
+    def check_output(self) -> None:
+        """Print check command output with perfdata and return code."""
+        message = self.check_message
         if self.perfdata:
-            message += self.getPerfdata()
+            message += self.get_perfdata()
 
-        self.output(self.checkResult, message)
+        self.output(self.check_result, message)
 
-    def output(self, returnCode, message):
-        prefix = returnCode.name
+    @staticmethod
+    def output(rc: CheckState, message: str) -> None:
+        """Print message to stdout and exit with given return code."""
+        prefix = rc.name
+        print(f"{prefix} - {message}")
+        sys.exit(rc.value)
 
-        message = "{} - {}".format(prefix, message)
+    def get_url(self, command: str) -> str:
+        """Get API url for specific command."""
+        return self.API_URL.format(host=self.options.hostname, port=self.options.port, uri=command)
 
-        print(message)
-        sys.exit(returnCode.value)
-
-    def getURL(self, part):
-        return self.API_URL.format(host=self.options.hostname, port=self.options.port, uri=part)
-
-    def request(self, url, method="get", **kwargs):
+    def request(self, url: str, method: str = "get", **kwargs: Dict) -> Union[Dict, None]:
+        """Execute request against OPNsense API and return json data."""
         response = None
         try:
             if method == "post":
@@ -93,17 +98,16 @@ class CheckOPNsense:
                     timeout=CHECK_API_TIMEOUT,
                 )
             else:
-                self.output(NagiosState.CRITICAL, "Unsupport request method: {}".format(method))
+                self.output(CheckState.CRITICAL, f"Unsupport request method: {method}")
         except requests.exceptions.ConnectTimeout:
-            self.output(NagiosState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
+            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
         except requests.exceptions.SSLError:
             self.output(
-                NagiosState.UNKNOWN, "Could not connect to OPNsense: Certificate validation failed"
+                CheckState.UNKNOWN, "Could not connect to OPNsense: Certificate validation failed"
             )
-        except requests.exceptions.ConnectionError as e:
-            print(e)
+        except requests.exceptions.ConnectionError:
             self.output(
-                NagiosState.UNKNOWN, "Could not connect to OPNsense: Failed to resolve hostname"
+                CheckState.UNKNOWN, "Could not connect to OPNsense: Failed to resolve hostname"
             )
 
         if response.ok:
@@ -116,22 +120,34 @@ class CheckOPNsense:
             elif response.status_code == 403:
                 message += "Access denied. Please check if API user has sufficient permissions."
             else:
-                message += "HTTP error code was {}".format(response.status_code)
+                message += f"HTTP error code was {response.status_code}"
 
-            self.output(NagiosState.UNKNOWN, message)
+            self.output(CheckState.UNKNOWN, message)
 
-    def check(self):
-        self.checkResult = NagiosState.OK
+    def get_perfdata(self) -> str:
+        """Get perfdata string."""
+        perfdata = ""
+
+        if self.perfdata:
+            perfdata = "|"
+            perfdata += " ".join(self.perfdata)
+
+        return perfdata
+
+    def check(self) -> None:
+        """Execute the real check command."""
+        self.check_result = CheckState.OK
 
         if self.options.mode == "updates":
-            self.checkUpdates()
+            self.check_updates()
         else:
             message = "Check mode '{}' not known".format(self.options.mode)
-            self.output(NagiosState.UNKNOWN, message)
+            self.output(CheckState.UNKNOWN, message)
 
-        self.checkOutput()
+        self.check_output()
 
-    def parseOptions(self):
+    def parse_args(self) -> None:
+        """Parse CLI arguments."""
         p = argparse.ArgumentParser(description="Check command OPNsense firewall monitoring")
 
         api_opts = p.add_argument_group("API Options")
@@ -190,24 +206,30 @@ class CheckOPNsense:
 
         self.options = options
 
-    def checkUpdates(self):
-        url = self.getURL("core/firmware/status")
+    def check_updates(self) -> None:
+        """Check opnsense for system updates."""
+        url = self.get_url("core/firmware/status")
         data = self.request(url)
 
         if data["status"] == "ok" and data["status_upgrade_action"] == "all":
             count = data["updates"]
 
-            self.checkResult = NagiosState.WARNING
-            self.checkMessage = "{} pending updates".format(count)
+            self.check_result = CheckState.WARNING
+            self.check_message = "{} pending updates".format(count)
 
             if data["upgrade_needs_reboot"]:
-                self.checkResult = NagiosState.CRITICAL
-                self.checkMessage = "{}. Subsequent reboot required.".format(self.checkMessage)
+                self.check_result = CheckState.CRITICAL
+                self.check_message = "{}. Subsequent reboot required.".format(self.check_message)
         else:
-            self.checkMessage = "System up to date"
+            self.check_message = "System up to date"
 
-    def __init__(self):
-        self.parseOptions()
+    def __init__(self) -> None:
+        self.options = {}
+        self.perfdata = []
+        self.check_result = CheckState.UNKNOWN
+        self.check_message = ""
+
+        self.parse_args()
 
         if self.options.api_insecure:
             # disable urllib3 warning about insecure requests
