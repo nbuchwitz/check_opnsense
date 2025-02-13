@@ -75,11 +75,11 @@ For further information have a look at the [opnsense documentation](https://docs
 **Check for updates**
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
-CRITICAL - There are 43 updates available, total download size is 199.1MiB. This update requires a reboot.
+CRITICAL - There are 43 updates available, total download size is 199.1MiB. This update requires a reboot.|upgrade_packages=42 reinstall_packages=1 remove_packages=0 available_updates=43
 
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
-WARNING - There are 14 updates available, total download size is 64.8MiB.
+WARNING - There are 14 updates available, total download size is 64.8MiB.|upgrade_packages=14 reinstall_packages=0 remove_packages=0 available_updates=14
 
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
-OK - System up to date
+OK - System up to date|upgrade_packages=0 reinstall_packages=0 remove_packages=0 available_updates=0
 ```

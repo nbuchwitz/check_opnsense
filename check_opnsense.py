@@ -227,6 +227,16 @@ class CheckOPNsense:
         else:
             self.check_message = "System up to date"
 
+        # Performance data
+        upgrade_packages = len(data["upgrade_packages"])
+        reinstall_packages = len(data["reinstall_packages"])
+        remove_packages = len(data["remove_packages"])
+        available_updates = upgrade_packages + reinstall_packages + remove_packages
+        self.perfdata.append("upgrade_packages={}".format(upgrade_packages))
+        self.perfdata.append("reinstall_packages={}".format(reinstall_packages))
+        self.perfdata.append("remove_packages={}".format(remove_packages))
+        self.perfdata.append("available_updates={}".format(available_updates))
+
     def __init__(self) -> None:
         self.options = {}
         self.perfdata = []
