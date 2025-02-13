@@ -216,7 +216,7 @@ class CheckOPNsense:
             data = self.request(url, method="post")
 
         has_update = data["status"] in ("update", "upgrade")
-        needs_reboot = data["status_reboot"] == "1"
+        needs_reboot = data.get("status_reboot", 0) == "1"
 
         if has_update:
             self.check_result = CheckState.WARNING
