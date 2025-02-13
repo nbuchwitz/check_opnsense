@@ -75,8 +75,8 @@ For further information have a look at the [opnsense documentation](https://docs
 **Check for updates**
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
-CRITICAL - 42 pending updates. Subsequent reboot required.
+CRITICAL - There are 43 updates available, total download size is 199.1MiB. This update requires a reboot.
 
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
-WARNING - 14 pending updates.
+WARNING - There are 14 updates available, total download size is 64.8MiB.
 ```
