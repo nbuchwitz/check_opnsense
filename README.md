@@ -79,4 +79,7 @@ CRITICAL - There are 43 updates available, total download size is 199.1MiB. This
 
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
 WARNING - There are 14 updates available, total download size is 64.8MiB.
+
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+OK - System up to date
 ```
