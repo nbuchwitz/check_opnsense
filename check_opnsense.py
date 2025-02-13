@@ -3,9 +3,9 @@
 
 # ------------------------------------------------------------------------------
 # check_opnsense.py - A check plugin for monitoring OPNsense firewalls.
-# Copyright (C) 2018  Nicolai Buchwitz <nb@tipi-net.de>
+# Copyright (C) 2018 - 2024  Nicolai Buchwitz <nb@tipi-net.de>
 #
-# Version: 0.1.0
+# Version: 0.2.0
 #
 # ------------------------------------------------------------------------------
 # This program is free software; you can redistribute it and/or
@@ -55,7 +55,7 @@ class CheckState(Enum):
 class CheckOPNsense:
     """Check command for OPNsense."""
 
-    VERSION = "0.1.0"
+    VERSION = "0.2.0"
     API_URL = "https://{host}:{port}/api/{uri}"
 
     def check_output(self) -> None:
@@ -211,15 +211,19 @@ class CheckOPNsense:
         url = self.get_url("core/firmware/status")
         data = self.request(url)
 
-        if data["status"] == "ok" and data["status_upgrade_action"] == "all":
-            count = data["updates"]
+        if data["status"] in ("none", "error"):
+            # no update information available -> trigger check
+            data = self.request(url, method="post")
 
+        has_update = data["status"] in ("update", "upgrade")
+        needs_reboot = data["status_reboot"] == "1"
+
+        if has_update:
             self.check_result = CheckState.WARNING
-            self.check_message = "{} pending updates".format(count)
+            self.check_message = data["status_msg"]
 
-            if data["upgrade_needs_reboot"]:
+            if needs_reboot:
                 self.check_result = CheckState.CRITICAL
-                self.check_message = "{}. Subsequent reboot required.".format(self.check_message)
         else:
             self.check_message = "System up to date"
 
