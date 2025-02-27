@@ -5,7 +5,7 @@
 # check_opnsense.py - A check plugin for monitoring OPNsense firewalls.
 # Copyright (C) 2018 - 2024  Nicolai Buchwitz <nb@tipi-net.de>
 #
-# Version: 0.2.0
+# Version: 0.3.0
 #
 # ------------------------------------------------------------------------------
 # This program is free software; you can redistribute it and/or
@@ -140,6 +140,8 @@ class CheckOPNsense:
 
         if self.options.mode == "updates":
             self.check_updates()
+        elif self.options.mode == "ipsec":
+            self.check_ipsec()
         else:
             message = "Check mode '{}' not known".format(self.options.mode)
             self.output(CheckState.UNKNOWN, message)
@@ -185,7 +187,7 @@ class CheckOPNsense:
         check_opts = p.add_argument_group("Check Options")
 
         check_opts.add_argument(
-            "-m", "--mode", choices=("updates",), required=True, help="Mode to use."
+            "-m", "--mode", choices=("updates","ipsec",), required=True, help="Mode to use."
         )
         check_opts.add_argument(
             "-w",
@@ -237,11 +239,37 @@ class CheckOPNsense:
         self.perfdata.append("remove_packages={}".format(remove_packages))
         self.perfdata.append("available_updates={}".format(available_updates))
 
+    def check_ipsec(self) -> None:
+        """Check IPsec Status."""
+        url = self.get_url("ipsec/sessions/search_phase1")
+        data = self.request(url)
+
+        if data["total"] > 0:
+            for row in data["rows"]:
+                if not row["connected"]:
+                    self.check_result = CheckState.WARNING
+                    if self.check_message_nok == "":
+                        self.check_message_nok += "'{}' ".format(row["phase1desc"])
+                    else:
+                        self.check_message_nok += ", '{}' ".format(row["phase1desc"])
+                if row["connected"]:
+                    self.check_message_ok += "'{}', ".format(row["phase1desc"])
+        else:
+            self.check_message = "No IPsec Tunnels configured"
+        if self.check_result == CheckState.WARNING:
+            self.check_message = "Tunnels with errors: "
+            self.check_message += self.check_message_nok
+        else:
+            self.check_message = "Connected Tunnels: "
+            self.check_message += self.check_message_ok
+
     def __init__(self) -> None:
         self.options = {}
         self.perfdata = []
         self.check_result = CheckState.UNKNOWN
         self.check_message = ""
+        self.check_message_ok = ""
+        self.check_message_nok = ""
 
         self.parse_args()
 
