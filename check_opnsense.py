@@ -140,6 +140,8 @@ class CheckOPNsense:
 
         if self.options.mode == "updates":
             self.check_updates()
+        elif self.options.mode == "ipsec":
+            self.check_ipsec()
         else:
             message = "Check mode '{}' not known".format(self.options.mode)
             self.output(CheckState.UNKNOWN, message)
