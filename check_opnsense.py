@@ -254,11 +254,6 @@ class CheckOPNsense:
         tunnels_connected = []
         tunnels_disconnected = []
 
-        self.check_message = "No IPsec tunnels configured"
-
-        if data["total"] == 0:
-            return
-
         for row in data["rows"]:
             if not row["connected"]:
                 self.check_result = CheckState.WARNING
@@ -272,6 +267,11 @@ class CheckOPNsense:
         elif tunnels_connected:
             self.check_message = "IPsec tunnels connected: "
             self.check_message += ", ".join(tunnels_connected)
+        else:
+            self.check_message = "No IPsec tunnels configured"
+
+        self.perfdata.append(f"tunnels_connected={len(tunnels_connected)}")
+        self.perfdata.append(f"tunnels_disconnected={len(tunnels_disconnected)}")
 
     def __init__(self) -> None:
         self.options = {}
