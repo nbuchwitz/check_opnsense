@@ -140,6 +140,8 @@ class CheckOPNsense:
 
         if self.options.mode == "updates":
             self.check_updates()
+        elif self.options.mode == "ipsec":
+            self.check_ipsec()
         else:
             message = "Check mode '{}' not known".format(self.options.mode)
             self.output(CheckState.UNKNOWN, message)
@@ -185,7 +187,14 @@ class CheckOPNsense:
         check_opts = p.add_argument_group("Check Options")
 
         check_opts.add_argument(
-            "-m", "--mode", choices=("updates",), required=True, help="Mode to use."
+            "-m",
+            "--mode",
+            choices=(
+                "updates",
+                "ipsec",
+            ),
+            required=True,
+            help="Mode to use.",
         )
         check_opts.add_argument(
             "-w",
@@ -236,6 +245,32 @@ class CheckOPNsense:
         self.perfdata.append("reinstall_packages={}".format(reinstall_packages))
         self.perfdata.append("remove_packages={}".format(remove_packages))
         self.perfdata.append("available_updates={}".format(available_updates))
+
+    def check_ipsec(self) -> None:
+        """Check IPsec tunnel status."""
+        url = self.get_url("ipsec/sessions/search_phase1")
+        data = self.request(url)
+        tunnels_connected = []
+        tunnels_disconnected = []
+
+        self.check_message = "No IPsec tunnels configured"
+
+        if data["total"] == 0:
+            return
+
+        for row in data["rows"]:
+            if not row["connected"]:
+                self.check_result = CheckState.WARNING
+                tunnels_disconnected.append(row["phase1desc"])
+            if row["connected"]:
+                tunnels_connected.append(row["phase1desc"])
+
+        if tunnels_disconnected:
+            self.check_message = "IPsec tunnels not connected: "
+            self.check_message += ", ".join(tunnels_disconnected)
+        elif tunnels_connected:
+            self.check_message = "IPsec tunnels connected: "
+            self.check_message += ", ".join(tunnels_connected)
 
     def __init__(self) -> None:
         self.options = {}
