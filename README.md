@@ -28,27 +28,24 @@ pkg install python3 py39-requests
 The ``icinga2`` folder contains the command defintion and service examples for use with Icinga2.
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret
-                         API_SECRET [-k] -m {updates} [-w TRESHOLD_WARNING]
-                         [-c TRESHOLD_CRITICAL]
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec} [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL]
 
 Check command OPNsense firewall monitoring
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
 
 API Options:
   -H HOSTNAME, --hostname HOSTNAME
                         OPNsense hostname or ip address
   -p PORT, --port PORT  OPNsense https-api port
-                        OPNsense hostname or ip address
   --api-key API_KEY     API key (See OPNsense user manager)
   --api-secret API_SECRET
                         API key (See OPNsense user manager)
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
-  -m {updates}, --mode {updates}
+  -m {updates,ipsec}, --mode {updates,ipsec}
                         Mode to use.
   -w TRESHOLD_WARNING, --warning TRESHOLD_WARNING
                         Warning treshold for check value
@@ -82,4 +79,13 @@ WARNING - There are 14 updates available, total download size is 64.8MiB.|upgrad
 
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
 OK - System up to date|upgrade_packages=0 reinstall_packages=0 remove_packages=0 available_updates=0
+```
+
+***Check ipsec tunnel status***
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+WARNING - IPsec tunnels not connected: headquarter
+
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+OK - IPsec tunnels connected: remote-office, headquarter
 ```
