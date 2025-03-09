@@ -112,17 +112,18 @@ class CheckOPNsense:
 
         if response.ok:
             return response.json()
+
+        message = "Could not fetch data from API: "
+
+        if response.status_code == 401:
+            message += "Could not connection to OPNsense: invalid username or password"
+        elif response.status_code == 403:
+            message += "Access denied. Please check if API user has sufficient permissions."
         else:
-            message = "Could not fetch data from API: "
+            message += f"HTTP error code was {response.status_code}"
 
-            if response.status_code == 401:
-                message += "Could not connection to OPNsense: invalid username or password"
-            elif response.status_code == 403:
-                message += "Access denied. Please check if API user has sufficient permissions."
-            else:
-                message += f"HTTP error code was {response.status_code}"
-
-            self.output(CheckState.UNKNOWN, message)
+        self.output(CheckState.UNKNOWN, message)
+        return {}
 
     def get_perfdata(self) -> str:
         """Get perfdata string."""
@@ -143,7 +144,7 @@ class CheckOPNsense:
         elif self.options.mode == "ipsec":
             self.check_ipsec()
         else:
-            message = "Check mode '{}' not known".format(self.options.mode)
+            message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
 
         self.check_output()
@@ -241,10 +242,10 @@ class CheckOPNsense:
         reinstall_packages = len(data["reinstall_packages"])
         remove_packages = len(data["remove_packages"])
         available_updates = upgrade_packages + reinstall_packages + remove_packages
-        self.perfdata.append("upgrade_packages={}".format(upgrade_packages))
-        self.perfdata.append("reinstall_packages={}".format(reinstall_packages))
-        self.perfdata.append("remove_packages={}".format(remove_packages))
-        self.perfdata.append("available_updates={}".format(available_updates))
+        self.perfdata.append(f"upgrade_packages={upgrade_packages}")
+        self.perfdata.append(f"reinstall_packages={reinstall_packages}")
+        self.perfdata.append(f"remove_packages={remove_packages}")
+        self.perfdata.append(f"available_updates={available_updates}")
 
     def check_ipsec(self) -> None:
         """Check IPsec tunnel status."""
