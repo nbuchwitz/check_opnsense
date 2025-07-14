@@ -70,7 +70,7 @@ class CheckOPNsense:
     def output(rc: CheckState, message: str) -> None:
         """Print message to stdout and exit with given return code."""
         prefix = rc.name
-        print(f"{prefix} - {message}")
+        print(f"[{prefix}] {message}")
         sys.exit(rc.value)
 
     def get_url(self, command: str) -> str:
