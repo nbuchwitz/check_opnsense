@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # ------------------------------------------------------------------------------
 # check_opnsense.py - A check plugin for monitoring OPNsense firewalls.
 # Copyright (C) 2018 - 2025  Nicolai Buchwitz <nb@tipi-net.de>
 #
-# Version: 0.3.0
+# Version: 0.4.0
 #
 # ------------------------------------------------------------------------------
 # This program is free software; you can redistribute it and/or
@@ -55,7 +55,7 @@ class CheckState(Enum):
 class CheckOPNsense:
     """Check command for OPNsense."""
 
-    VERSION = "0.3.0"
+    VERSION = "0.4.0"
     API_URL = "https://{host}:{port}/api/{uri}"
 
     def check_output(self) -> None:
@@ -70,7 +70,7 @@ class CheckOPNsense:
     def output(rc: CheckState, message: str) -> None:
         """Print message to stdout and exit with given return code."""
         prefix = rc.name
-        print(f"{prefix} - {message}")
+        print(f"[{prefix}] {message}")
         sys.exit(rc.value)
 
     def get_url(self, command: str) -> str:
@@ -143,9 +143,20 @@ class CheckOPNsense:
             self.check_updates()
         elif self.options.mode == "ipsec":
             self.check_ipsec()
+        elif self.options.mode == "interfaces":
+            self.check_interfaces()
+        elif self.options.mode == "services":
+            self.check_services()
+        elif self.options.mode == "wireguard":
+            self.check_wireguard()
         else:
             message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
+
+        if self.options.filter:
+            self.options.filter = self.options.filter.split(",")
+        else:
+            self.options.filter = []
 
         self.check_output()
 
@@ -190,10 +201,7 @@ class CheckOPNsense:
         check_opts.add_argument(
             "-m",
             "--mode",
-            choices=(
-                "updates",
-                "ipsec",
-            ),
+            choices=("updates", "ipsec", "interfaces", "services", "wireguard"),
             required=True,
             help="Mode to use.",
         )
@@ -210,6 +218,24 @@ class CheckOPNsense:
             dest="treshold_critical",
             type=float,
             help="Critical treshold for check value",
+        )
+        check_opts.add_argument(
+            "-v",
+            "--verbose",
+            action="count",
+            default=0,
+            help="Enable verbose Output max -vvv",
+            required=False,
+        )
+        check_opts.add_argument(
+            "-f",
+            "--filter",
+            type=str,
+            default="",
+            help=(
+                "String that can be used in multiple modes to exclude unwanted items "
+                "from the output or exit code calculation. Example: 'Disk 1, Disk 2'."
+            ),
         )
 
         options = p.parse_args()
@@ -272,6 +298,142 @@ class CheckOPNsense:
 
         self.perfdata.append(f"tunnels_connected={len(tunnels_connected)}")
         self.perfdata.append(f"tunnels_disconnected={len(tunnels_disconnected)}")
+
+    def check_interfaces(self) -> None:
+        """Check physical interface status."""
+        url = self.get_url("interfaces/overview/interfaces_info")
+        data = self.request(url)
+
+        interfaces_up = []
+        interfaces_down = []
+        interfaces_filtered = []
+
+        for row in data["rows"]:
+            device = row.get("device", None)
+            enabled = row.get("enabled", False)
+            status = row.get("status", "Down")
+            if device not in self.options.filter:
+                if enabled:
+                    if status == "up":
+                        self.check_result = CheckState.OK
+                        interfaces_up.append(device)
+                    else:
+                        self.check_result = CheckState.CRITICAL
+                        interfaces_down.append(device)
+            else:
+                interfaces_filtered.append(device)
+        if interfaces_down:
+            counter = len(interfaces_down)
+            self.check_message = f"{counter} interface(s) are down\n"
+            self.check_message += "\n".join(interfaces_down)
+        elif interfaces_up:
+            counter = len(interfaces_up)
+            self.check_message = f"{counter} interface(s) are up\n"
+
+        for i in interfaces_down:
+            self.check_message += f"[DOWN] interface {i} is down\n"
+
+        for i in interfaces_up:
+            self.check_message += f"[UP] interface {i} is up\n"
+
+        if self.options.verbose >= 1:
+            self.check_message += "\n--- VERBOSE ---\n"
+            for i in interfaces_filtered:
+                self.check_message += f"[FILTER] interface {i} is filtered by --filter\n"
+
+    def check_services(self) -> None:
+        """Check services status."""
+        list_of_services = [
+            "dhcpv4",
+            "dhcpv6",
+            "ids",
+            "kea",
+            "syslog",
+            "unbound",
+        ]
+
+        running_services = []
+        failed_services = []
+        disabled_services = []
+        filtered_services = []
+        for i in list_of_services:
+            if i not in self.options.filter:
+                url = self.get_url(f"{i}/service/status")
+                data = self.request(url)
+
+                status = data.get("status", "disabled")
+                if status != "disabled":
+                    if status == "running":
+                        running_services.append(i)
+                    else:
+                        failed_services.append(i)
+                else:
+                    disabled_services.append(i)
+            else:
+                filtered_services.append(i)
+
+        if failed_services:
+            counter = len(failed_services)
+            self.check_message = f"{counter} services have failed\n"
+            self.check_result = CheckState.CRITICAL
+        elif running_services:
+            counter = len(running_services)
+            self.check_message = f"{counter} services are running\n"
+            self.check_result = CheckState.OK
+
+        for i in failed_services:
+            self.check_message += f"[CRITICAL] Service {i} has failed\n"
+        for i in running_services:
+            self.check_message += f"[OK] Service {i} is running\n"
+        if self.options.verbose >= 1:
+            self.check_message += "\n--- VERBOSE ---\n"
+            for i in filtered_services:
+                self.check_message += f"[FILTER] Service {i} is filtered by --filter\n"
+            for i in disabled_services:
+                self.check_message += f"[OK] Service {i} is disabled\n"
+
+    def check_wireguard(self) -> None:
+        """Check WireGuard tunnel status."""
+        url = self.get_url("wireguard/service/show")
+        data = self.request(url)
+
+        online = []
+        offline = []
+        filtered = []
+
+        for wgs in data["rows"]:
+            peer_status = wgs.get("peer-status", "offline")
+            name = wgs.get("name", "unknown")
+            endpoint = wgs.get("endpoint", "unknown")
+
+            if name not in self.options.filter:
+                if peer_status == "online":
+                    online.append(f"[OK] Peer {name} is online ({endpoint})")
+                else:
+                    offline.append(f"[CRITICAL] Peer {name} is offline ({endpoint})")
+            else:
+                filtered.append(name)
+
+        counter_on = len(online)
+        counter_off = len(offline)
+
+        counter_sum = counter_off + counter_on
+
+        if offline:
+            self.check_message = f"{counter_off}/{counter_sum} WireGuard peers are offline\n"
+            self.check_result = CheckState.CRITICAL
+        elif online:
+            self.check_message = f"{counter_on}/{counter_sum} WireGuard peers are online\n"
+            self.check_result = CheckState.OK
+
+        for i in offline:
+            self.check_message += f"{i}\n"
+        for i in online:
+            self.check_message += f"{i}\n"
+        if self.options.verbose >= 1:
+            self.check_message += "\n--- VERBOSE ---\n"
+            for i in filtered:
+                self.check_message += f"[FILTER] Peer {i} is filtered by --filter\n"
 
     def __init__(self) -> None:
         self.options = {}
