@@ -25,7 +25,7 @@ pkg install python3 py39-requests
 
 ## Usage
 
-The ``icinga2`` folder contains the command defintion and service examples for use with Icinga2.
+Add a check command definition and a service to Icinga2.
 
 Use `./check_opnsense.py -h` to get instructions:
 
