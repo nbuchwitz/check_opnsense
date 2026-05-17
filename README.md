@@ -30,7 +30,7 @@ Add a check command definition and a service to Icinga2.
 Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard}
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk}
                          [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
 
 Check command OPNsense firewall monitoring
@@ -48,7 +48,7 @@ API Options:
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
-  -m, --mode {updates,ipsec,interfaces,services,wireguard}
+  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk}
                         Mode to use.
   -w, --warning TRESHOLD_WARNING
                         Warning treshold for check value
@@ -100,4 +100,34 @@ For further information have a look at the [opnsense documentation](https://docs
 [OK] 2/2 Wireguard peers are online
 [OK] Peer host1 is online (8.8.8.4:35376)
 [OK] Peer host2 is online (8.8.8.5:34376)
+```
+
+***Check available disk space***
+
+Options:
+
+* `-w` and `-c` define maximum disk usage i.e. `-w 80` will warn if disk usage exceeds 80%  
+* `-f <mountpoint>` will not check `<mountpoint>` i.e. `-f /` will not check the root filesystem.
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m disk
+[OK] Disk space is ok | /=2%;80.0;90.0;0;100
+[OK] / has 201G of 222G (98.0%) free disk space
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m disk - w 1 -c 2.5
+[WARNING] Disk space is low on 1 disk(s) | /=2%;1.0;2.5;0;100
+[WARNING] / has only 201G of 222G (98.0%) free disk space
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m disk - w 1 -c 2
+[CRITICAL] Disk space is critically low on 1 disk(s) | /=2%;1.0;2.0;0;100
+[CRITICAL] / has only 201G of 222G (98.0%) free disk space
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m disk - w 1 -c 2 -f '/'
+[UNKNOWN] No disks found
 ```
