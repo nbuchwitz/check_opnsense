@@ -87,10 +87,10 @@ For further information have a look at the [opnsense documentation](https://docs
 
 ***Check ipsec tunnel status***
 ```shell
-./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m ipsec
 [WARNING] IPsec tunnels not connected: headquarter
 
-./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m ipsec
 [OK] IPsec tunnels connected: remote-office, headquarter
 ```
 
