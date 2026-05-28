@@ -139,6 +139,11 @@ class CheckOPNsense:
         """Execute the real check command."""
         self.check_result = CheckState.OK
 
+        if self.options.filter:
+            self.options.filter = self.options.filter.split(",")
+        else:
+            self.options.filter = []
+
         if self.options.mode == "updates":
             self.check_updates()
         elif self.options.mode == "ipsec":
@@ -152,11 +157,6 @@ class CheckOPNsense:
         else:
             message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
-
-        if self.options.filter:
-            self.options.filter = self.options.filter.split(",")
-        else:
-            self.options.filter = []
 
         self.check_output()
 
