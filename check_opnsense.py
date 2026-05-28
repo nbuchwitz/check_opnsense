@@ -405,6 +405,10 @@ class CheckOPNsense:
             peer_status = wgs.get("peer-status", "offline")
             name = wgs.get("name", "unknown")
             endpoint = wgs.get("endpoint", "unknown")
+            wg_type = wgs.get("type", "peer")
+
+            if wg_type != "peer":
+                continue
 
             if name not in self.options.filter:
                 if peer_status == "online":
