@@ -139,7 +139,6 @@ class CheckOPNsense:
 
     def get_check_details(self) -> str:
         """Get the detail messages as string."""
-
         details = ""
         for detail in self.check_details:
             details += f"{detail}\n"
@@ -492,16 +491,19 @@ class CheckOPNsense:
                 if used_pct >= crit:
                     num_critical += 1
                     self.check_details.append(
-                        f"[CRITICAL] {mountpoint} has only {free_space} of {total_space} ({available_pct}%) free disk space"
+                        f"[CRITICAL] {mountpoint} has only {free_space} of {total_space}"
+                        + f" ({available_pct}%) free disk space"
                     )
                 elif used_pct >= warn:
                     num_warning += 1
                     self.check_details.append(
-                        f"[WARNING] {mountpoint} has only {free_space} of {total_space} ({available_pct}%) free disk space"
+                        f"[WARNING] {mountpoint} has only {free_space} of {total_space}"
+                        + f" ({available_pct}%) free disk space"
                     )
                 else:
                     self.check_details.append(
-                        f"[OK] {mountpoint} has {free_space} of {total_space} ({available_pct}%) free disk space"
+                        f"[OK] {mountpoint} has {free_space} of {total_space}"
+                        + f" ({available_pct}%) free disk space"
                     )
 
                 # Performance data
