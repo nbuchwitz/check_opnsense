@@ -139,6 +139,11 @@ class CheckOPNsense:
         """Execute the real check command."""
         self.check_result = CheckState.OK
 
+        if self.options.filter:
+            self.options.filter = self.options.filter.split(",")
+        else:
+            self.options.filter = []
+
         if self.options.mode == "updates":
             self.check_updates()
         elif self.options.mode == "ipsec":
@@ -152,11 +157,6 @@ class CheckOPNsense:
         else:
             message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
-
-        if self.options.filter:
-            self.options.filter = self.options.filter.split(",")
-        else:
-            self.options.filter = []
 
         self.check_output()
 
@@ -405,6 +405,10 @@ class CheckOPNsense:
             peer_status = wgs.get("peer-status", "offline")
             name = wgs.get("name", "unknown")
             endpoint = wgs.get("endpoint", "unknown")
+            wg_type = wgs.get("type", "peer")
+
+            if wg_type != "peer":
+                continue
 
             if name not in self.options.filter:
                 if peer_status == "online":
