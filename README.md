@@ -25,10 +25,13 @@ pkg install python3 py39-requests
 
 ## Usage
 
-The ``icinga2`` folder contains the command defintion and service examples for use with Icinga2.
+Add a check command definition and a service to Icinga2.
+
+Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,hastatus,interfaces,services,wireguard} [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL]
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard}
+                         [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
 
 Check command OPNsense firewall monitoring
 
@@ -36,24 +39,23 @@ options:
   -h, --help            show this help message and exit
 
 API Options:
-  -H HOSTNAME, --hostname HOSTNAME
+  -H, --hostname HOSTNAME
                         OPNsense hostname or ip address
-  -p PORT, --port PORT  OPNsense https-api port
+  -p, --port PORT       OPNsense https-api port
   --api-key API_KEY     API key (See OPNsense user manager)
   --api-secret API_SECRET
                         API key (See OPNsense user manager)
   -k, --insecure        Don't verify HTTPS certificate
-  -v, --verbose         Print verbose output (helpful at filtering)
-  -f, --filter          String Option to filter some objects (Example --filter 'wg0,wg1')
 
 Check Options:
-  -m {updates,ipsec,hastatus,interfaces,services,wireguard}, --mode {updates,ipsec,hastatus,interfaces,services,wireguard}
+  -m, --mode {updates,ipsec,interfaces,services,wireguard}
                         Mode to use.
-  -w TRESHOLD_WARNING, --warning TRESHOLD_WARNING
+  -w, --warning TRESHOLD_WARNING
                         Warning treshold for check value
-  -c TRESHOLD_CRITICAL, --critical TRESHOLD_CRITICAL
+  -c, --critical TRESHOLD_CRITICAL
                         Critical treshold for check value
-
+  -v, --verbose         Enable verbose Output max -vvv
+  -f, --filter FILTER   String that can be used in multiple modes to exclude unwanted items from the output or exit code calculation. Example: 'Disk 1, Disk 2'.
 ```
 
 ## Create API credentials
@@ -85,10 +87,10 @@ For further information have a look at the [opnsense documentation](https://docs
 
 ***Check ipsec tunnel status***
 ```shell
-./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m ipsec
 [WARNING] IPsec tunnels not connected: headquarter
 
-./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m ipsec
 [OK] IPsec tunnels connected: remote-office, headquarter
 ```
 
