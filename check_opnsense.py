@@ -63,6 +63,8 @@ class CheckOPNsense:
         message = self.check_message
         if self.perfdata:
             message += self.get_perfdata()
+        if self.check_details:
+            message += "\n" + self.get_check_details()
 
         self.output(self.check_result, message)
 
@@ -130,10 +132,18 @@ class CheckOPNsense:
         perfdata = ""
 
         if self.perfdata:
-            perfdata = "|"
+            perfdata = " | "
             perfdata += " ".join(self.perfdata)
 
         return perfdata
+
+    def get_check_details(self) -> str:
+        """Get the detail messages as string."""
+        details = ""
+        for detail in self.check_details:
+            details += f"{detail}\n"
+
+        return details
 
     def check(self) -> None:
         """Execute the real check command."""
@@ -154,6 +164,8 @@ class CheckOPNsense:
             self.check_services()
         elif self.options.mode == "wireguard":
             self.check_wireguard()
+        elif self.options.mode == "disk":
+            self.check_disk()
         else:
             message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
@@ -201,7 +213,7 @@ class CheckOPNsense:
         check_opts.add_argument(
             "-m",
             "--mode",
-            choices=("updates", "ipsec", "interfaces", "services", "wireguard"),
+            choices=("updates", "ipsec", "interfaces", "services", "wireguard", "disk"),
             required=True,
             help="Mode to use.",
         )
@@ -439,11 +451,83 @@ class CheckOPNsense:
             for i in filtered:
                 self.check_message += f"[FILTER] Peer {i} is filtered by --filter\n"
 
+    def check_disk(self) -> None:
+        """Check available disk space."""
+        url = self.get_url("diagnostics/system/system_disk")
+        data = self.request(url)
+
+        # Response is of this type:
+        # {
+        #     "devices": [
+        #         {
+        #             "device": "\/dev\/gpt\/rootfs",
+        #             "type": "ufs",
+        #             "blocks": "222G",
+        #             "used": "3.9G",
+        #             "available": "201G",
+        #             "used_pct": 2,
+        #             "mountpoint": "\/"
+        #         }
+        #     ]
+        # }
+
+        warn = float(self.options.treshold_warning or "80")
+        crit = float(self.options.treshold_critical or "90")
+
+        num_critical = 0
+        num_warning = 0
+        num_disks = 0
+
+        devices = data.get("devices", [])
+        for dev in devices:
+            mountpoint = dev["mountpoint"]
+            if mountpoint not in self.options.filter:
+                num_disks += 1
+                free_space = dev["available"]
+                total_space = dev["blocks"]
+                used_pct = dev["used_pct"]
+                available_pct = 100 - float(used_pct)
+
+                if used_pct >= crit:
+                    num_critical += 1
+                    self.check_details.append(
+                        f"[CRITICAL] {mountpoint} has only {free_space} of {total_space}"
+                        + f" ({available_pct}%) free disk space"
+                    )
+                elif used_pct >= warn:
+                    num_warning += 1
+                    self.check_details.append(
+                        f"[WARNING] {mountpoint} has only {free_space} of {total_space}"
+                        + f" ({available_pct}%) free disk space"
+                    )
+                else:
+                    self.check_details.append(
+                        f"[OK] {mountpoint} has {free_space} of {total_space}"
+                        + f" ({available_pct}%) free disk space"
+                    )
+
+                # Performance data
+                self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
+
+            if num_critical > 0:
+                self.check_result = CheckState.CRITICAL
+                self.check_message = f"Disk space is critically low on {num_critical} disk(s)"
+            elif num_warning > 0:
+                self.check_result = CheckState.WARNING
+                self.check_message = f"Disk space is low on {num_warning} disk(s)"
+            elif num_disks > 0:
+                self.check_result = CheckState.OK
+                self.check_message = "Disk space is ok"
+            else:
+                self.check_result = CheckState.UNKNOWN
+                self.check_message = "No disks found"
+
     def __init__(self) -> None:
         self.options = {}
         self.perfdata = []
         self.check_result = CheckState.UNKNOWN
         self.check_message = ""
+        self.check_details = []
 
         self.parse_args()
 
