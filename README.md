@@ -30,7 +30,7 @@ Add a check command definition and a service to Icinga2.
 Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk}
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory}
                          [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
 
 Check command OPNsense firewall monitoring
@@ -48,7 +48,7 @@ API Options:
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
-  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk}
+  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory}
                         Mode to use.
   -w, --warning TRESHOLD_WARNING
                         Warning treshold for check value
@@ -130,4 +130,24 @@ Options:
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m disk - w 1 -c 2 -f '/'
 [UNKNOWN] No disks found
+```
+
+***Check memory***
+
+Options:
+
+* `-w` and `-c` define maximum memory usage i.e. `-w 80` will warn if memory usage exceeds 80% 
+
+Opnsense systems **without ZFS**, not using ARC:
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m memory
+[OK] Memory usage is 34% | memory=34%;80.0;90.0;0;100;
+
+```
+
+Opnsense systems **with ZFS**, using ARC:
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m memory -w 35 -c 50
+[WARNING] Memory usage is 39% | memory=39%;35.0;50.0;0;100; arc_size=199MB;
+Additional memory used for ARC: 199MB
 ```
