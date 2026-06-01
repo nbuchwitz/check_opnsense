@@ -168,6 +168,8 @@ class CheckOPNsense:
             self.check_disk()
         elif self.options.mode == "memory":
             self.check_memory()
+        elif self.options.mode == "swap":
+            self.check_swap()
         else:
             message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
@@ -215,7 +217,16 @@ class CheckOPNsense:
         check_opts.add_argument(
             "-m",
             "--mode",
-            choices=("updates", "ipsec", "interfaces", "services", "wireguard", "disk", "memory"),
+            choices=(
+                "updates",
+                "ipsec",
+                "interfaces",
+                "services",
+                "wireguard",
+                "disk",
+                "memory",
+                "swap",
+            ),
             required=True,
             help="Mode to use.",
         )
@@ -571,6 +582,56 @@ class CheckOPNsense:
                 self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
             self.check_result = CheckState.OK
             self.check_message = f"Memory usage is {used_pct}%"
+
+    def check_swap(self) -> None:
+        """Check swap usage."""
+        url = self.get_url("diagnostics/system/system_swap")
+        data = self.request(url)
+
+        warn = float(self.options.treshold_warning or "80")
+        crit = float(self.options.treshold_critical or "90")
+
+        num_devs = 0
+        total_swap = 0
+        total_used_swap = 0
+        total_used_pct = 0
+
+        devices = data.get("swap", [])
+        try:
+            for dev in devices:
+                swap_device = dev.get("device")
+                if swap_device not in self.options.filter:
+                    num_devs += 1
+                    swap = int(dev.get("total"))
+                    total_swap += swap
+
+                    used_swap = int(dev.get("used"))
+                    total_used_swap += used_swap
+
+                    used_pct = round(float(used_swap / swap * 100))
+
+                    self.check_details.append(f"Swap usage on {swap_device} is {used_pct}%")
+                    # Performance data
+                    self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
+
+                total_used_pct = round(float(total_used_swap / total_swap * 100))
+
+        except Exception as e:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = f"No swap data received. ({e})"
+
+        if total_used_pct > crit:
+            self.check_result = CheckState.CRITICAL
+            self.check_message = f"Total swap usage is {total_used_pct}%"
+        elif total_used_pct > warn:
+            self.check_result = CheckState.WARNING
+            self.check_message = f"Total swap usage is {total_used_pct}%"
+        elif num_devs > 0:
+            self.check_result = CheckState.OK
+            self.check_message = f"Total swap usage is {total_used_pct}%"
+        else:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = "No swap found"
 
     def __init__(self) -> None:
         self.options = {}
