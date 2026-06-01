@@ -166,6 +166,8 @@ class CheckOPNsense:
             self.check_wireguard()
         elif self.options.mode == "disk":
             self.check_disk()
+        elif self.options.mode == "memory":
+            self.check_memory()
         else:
             message = f"Check mode '{self.options.mode}' not known"
             self.output(CheckState.UNKNOWN, message)
@@ -213,7 +215,7 @@ class CheckOPNsense:
         check_opts.add_argument(
             "-m",
             "--mode",
-            choices=("updates", "ipsec", "interfaces", "services", "wireguard", "disk"),
+            choices=("updates", "ipsec", "interfaces", "services", "wireguard", "disk", "memory"),
             required=True,
             help="Mode to use.",
         )
@@ -521,6 +523,54 @@ class CheckOPNsense:
             else:
                 self.check_result = CheckState.UNKNOWN
                 self.check_message = "No disks found"
+
+    def check_memory(self) -> None:
+        """Check memory usage."""
+        url = self.get_url("diagnostics/system/system_resources")
+        data = self.request(url)
+
+        warn = float(self.options.treshold_warning or "80")
+        crit = float(self.options.treshold_critical or "90")
+
+        total_mem = 0
+        used_mem = 0
+        arc_mem = 0
+        used_pct = 0
+
+        try:
+            total_mem = int(data["memory"].get("total_frmt"))
+            used_mem = int(data["memory"].get("used_frmt"))
+
+            # Check if the system uses ARC (ZFS Cache) and substract it from used memory
+            # since it is filesystem cache that can be cleared by the system to regain space
+            if data["memory"].get("arc_frmt"):
+                arc_mem = int(data["memory"].get("arc_frmt"))
+                used_mem = used_mem - arc_mem
+
+            used_pct = round(float(used_mem / total_mem * 100))
+
+            self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
+            if arc_mem > 0:
+                self.perfdata.append(f"arc_size={arc_mem}MB;")
+        except Exception as e:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = f"No memory data received. ({e})"
+
+        if used_pct > crit:
+            if arc_mem > 0:
+                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
+            self.check_result = CheckState.CRITICAL
+            self.check_message = f"Memory usage is {used_pct}%"
+        elif used_pct > warn:
+            if arc_mem > 0:
+                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
+            self.check_result = CheckState.WARNING
+            self.check_message = f"Memory usage is {used_pct}%"
+        elif used_pct > 0:
+            if arc_mem > 0:
+                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
+            self.check_result = CheckState.OK
+            self.check_message = f"Memory usage is {used_pct}%"
 
     def __init__(self) -> None:
         self.options = {}
