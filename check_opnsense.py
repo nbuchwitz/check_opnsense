@@ -558,7 +558,7 @@ class CheckOPNsense:
                 arc_mem = int(data["memory"].get("arc_frmt"))
                 used_mem = used_mem - arc_mem
 
-            used_pct = round(float(used_mem / total_mem * 100))
+            used_pct = round(float(used_mem / total_mem * 100), 1)
 
             self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
             if arc_mem > 0:
@@ -608,13 +608,13 @@ class CheckOPNsense:
                     used_swap = int(dev.get("used"))
                     total_used_swap += used_swap
 
-                    used_pct = round(float(used_swap / swap * 100))
+                    used_pct = round(float(used_swap / swap * 100), 1)
 
                     self.check_details.append(f"Swap usage on {swap_device} is {used_pct}%")
                     # Performance data
                     self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
 
-                total_used_pct = round(float(total_used_swap / total_swap * 100))
+                total_used_pct = round(float(total_used_swap / total_swap * 100), 1)
 
         except Exception as e:
             self.check_result = CheckState.UNKNOWN
