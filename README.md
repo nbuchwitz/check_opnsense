@@ -30,7 +30,7 @@ Add a check command definition and a service to Icinga2.
 Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory}
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap}
                          [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
 
 Check command OPNsense firewall monitoring
@@ -48,7 +48,7 @@ API Options:
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
-  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory}
+  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory,swap}
                         Mode to use.
   -w, --warning TRESHOLD_WARNING
                         Warning treshold for check value
@@ -150,4 +150,23 @@ Opnsense systems **with ZFS**, using ARC:
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m memory -w 35 -c 50
 [WARNING] Memory usage is 39% | memory=39%;35.0;50.0;0;100; arc_size=199MB;
 Additional memory used for ARC: 199MB
+```
+
+***Check swap***
+
+Options:
+
+* `-w` and `-c` define maximum memory usage i.e. `-w 80` will warn if memory usage exceeds 80% 
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m swap
+[OK] Total swap usage is 2% | /dev/md0=9%;80.0;90.0;0;100 /dev/gpt/swapfs=1%;80.0;90.0;0;100
+Swap usage on /dev/md0 is 9%
+Swap usage on /dev/gpt/swapfs is 1%
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m swap -f /dev/gpt/swapfs -c 8
+[CRITICAL] Total swap usage is 9% | /dev/md0=9%;80.0;8.0;0;100
+Swap usage on /dev/md0 is 9%
 ```
