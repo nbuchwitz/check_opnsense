@@ -85,6 +85,31 @@ For further information have a look at the [opnsense documentation](https://docs
 [OK] - System up to date|upgrade_packages=0 reinstall_packages=0 remove_packages=0 available_updates=0
 ```
 
+**Check for services**
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m services
+[CRITICAL] 1 service(s) stopped: ddclient (ddclient)
+
+--- RUNNING SERVICES ---
+[RUNNING] Configd (configd)
+[RUNNING] Cron (cron)
+[RUNNING] Dnsmasq DNS/DHCP (dnsmasq)
+[RUNNING] Gateway Watcher (dpinger/:watcher:)
+[RUNNING] Gateway WAN (dpinger/WAN)
+[RUNNING] Hostwatch (hostwatch)
+[RUNNING] Users and Groups (login)
+[RUNNING] Ntpd (ntpd)
+[RUNNING] OpenVPN server company-vpn (openvpn/4711)
+[RUNNING] Packet Filter (pf)
+[RUNNING] System routing (routing)
+[RUNNING] IPsec VPN (strongswan)
+[RUNNING] System tunables (sysctl)
+[RUNNING] Syslog-ng (syslog-ng)
+[RUNNING] Unbound (unbound)
+[RUNNING] Web GUI (webgui)
+ | services_running=16 services_stopped=1
+```
+
 ***Check ipsec tunnel status***
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m ipsec
