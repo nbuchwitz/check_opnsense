@@ -30,7 +30,7 @@ Add a check command definition and a service to Icinga2.
 Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap}
+usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
                          [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
 
 Check command OPNsense firewall monitoring
@@ -48,7 +48,7 @@ API Options:
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
-  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory,swap}
+  -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
                         Mode to use.
   -w, --warning TRESHOLD_WARNING
                         Warning treshold for check value
@@ -169,4 +169,42 @@ Swap usage on /dev/gpt/swapfs is 1%
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m swap -f /dev/gpt/swapfs -c 8
 [CRITICAL] Total swap usage is 9% | /dev/md0=9%;80.0;8.0;0;100
 Swap usage on /dev/md0 is 9%
+```
+
+***Check CPU***
+
+Options:
+
+* `-w` and `-c` define maximum cpu usage i.e. `-w 80` will warn if cpu usage exceeds 80%
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m cpu
+[OK] CPU usage is 1.9% | cpu_usage=1.9%;80.0;90.0;0;100
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m cpu -w 30 -c 40
+[CRITICAL] CPU usage is 42.7% | cpu_usage=42.7%;1.0;1.2;0;100
+```
+
+***Check load***
+
+Options: 
+
+* `-w` and `-c` define maximum load i.e. `-w 2` will warn if any load time range exceeds 2. 
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m load
+[OK] Load is ok. | load1=0.88;3.0;4.0;0; load5=0.72;3.0;4.0;0; load15=0.61;3.0;4.0;0;
+[OK] load1 is 0.88
+[OK] load5 is 0.72
+[OK] load15 is 0.61
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m load -w 0.5 -c 0.8
+[CRITICAL] Load is critical. | load1=1.34;0.5;0.8;0; load5=0.82;0.5;0.8;0; load15=0.65;0.5;0.8;0;
+[CRITICAL] load1 is 1.34
+[CRITICAL] load5 is 0.82
+[WARNING] load15 is 0.65
 ```
