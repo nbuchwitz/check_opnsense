@@ -373,55 +373,66 @@ class CheckOPNsense:
                 self.check_message += f"[FILTER] interface {i} is filtered by --filter\n"
 
     def check_services(self) -> None:
-        """Check services status."""
-        list_of_services = [
-            "dhcpv4",
-            "dhcpv6",
-            "ids",
-            "kea",
-            "syslog",
-            "unbound",
-        ]
+        """Check all configured services status via core/service/search."""
+        url = self.get_url("core/service/search")
+        data = self.request(url, method="post")
+
+        if not data or "rows" not in data:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = "Could not retrieve services list from API."
+            return
 
         running_services = []
-        failed_services = []
-        disabled_services = []
+        stopped_services = []
         filtered_services = []
-        for i in list_of_services:
-            if i not in self.options.filter:
-                url = self.get_url(f"{i}/service/status")
-                data = self.request(url)
 
-                status = data.get("status", "disabled")
-                if status != "disabled":
-                    if status == "running":
-                        running_services.append(i)
-                    else:
-                        failed_services.append(i)
-                else:
-                    disabled_services.append(i)
+        for row in data.get("rows", []):
+            service_id = str(row.get("id", ""))
+            name = str(row.get("name", ""))
+            desc = str(row.get("description", name))
+            is_running = row.get("running", 0) == 1
+
+            # Filterung nach ID oder Name (über den CLI-Parameter --filter)
+            if service_id in self.options.filter or name in self.options.filter:
+                filtered_services.append(f"{desc} ({service_id})")
+                continue
+
+            if is_running:
+                running_services.append(f"{desc} ({service_id})")
             else:
-                filtered_services.append(i)
+                stopped_services.append(f"{desc} ({service_id})")
 
-        if failed_services:
-            counter = len(failed_services)
-            self.check_message = f"{counter} services have failed\n"
+        # Performance Data
+        self.perfdata.append(f"services_running={len(running_services)}")
+        self.perfdata.append(f"services_stopped={len(stopped_services)}")
+
+        # Status & Message ermitteln
+        if stopped_services:
             self.check_result = CheckState.CRITICAL
-        elif running_services:
-            counter = len(running_services)
-            self.check_message = f"{counter} services are running\n"
-            self.check_result = CheckState.OK
+            self.check_message = (
+                f"{len(stopped_services)} service(s) stopped: {', '.join(stopped_services)}"
+            )
 
-        for i in failed_services:
-            self.check_message += f"[CRITICAL] Service {i} has failed\n"
-        for i in running_services:
-            self.check_message += f"[OK] Service {i} is running\n"
-        if self.options.verbose >= 1:
-            self.check_message += "\n--- VERBOSE ---\n"
-            for i in filtered_services:
-                self.check_message += f"[FILTER] Service {i} is filtered by --filter\n"
-            for i in disabled_services:
-                self.check_message += f"[OK] Service {i} is disabled\n"
+            if self.options.verbose >= 1:
+                self.check_message += "\n\n--- RUNNING SERVICES ---\n"
+                for s in running_services:
+                    self.check_message += f"[RUNNING] {s}\n"
+        elif running_services:
+            self.check_result = CheckState.OK
+            self.check_message = f"All {len(running_services)} configured service(s) are running."
+
+            if self.options.verbose >= 1:
+                self.check_message += "\n\n--- RUNNING SERVICES ---\n"
+                for s in running_services:
+                    self.check_message += f"[RUNNING] {s}\n"
+        else:
+            self.check_result = CheckState.OK
+            self.check_message = "No active services found."
+
+        if self.options.verbose >= 1 and filtered_services:
+            self.check_message += "\n--- FILTERED SERVICES ---\n"
+            for s in filtered_services:
+                self.check_message += f"[FILTERED] {s}\n"
 
     def check_wireguard(self) -> None:
         """Check WireGuard tunnel status."""
