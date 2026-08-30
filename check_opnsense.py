@@ -100,25 +100,30 @@ class CheckOPNsense:
                     timeout=CHECK_API_TIMEOUT,
                 )
             else:
-                self.output(CheckState.CRITICAL, f"Unsupport request method: {method}")
-        except requests.exceptions.ConnectTimeout:
-            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
+                self.output(CheckState.UNKNOWN, f"Unsupported request method: {method}")
         except requests.exceptions.SSLError:
             self.output(
                 CheckState.UNKNOWN, "Could not connect to OPNsense: Certificate validation failed"
             )
+        except requests.exceptions.Timeout:
+            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
         except requests.exceptions.ConnectionError:
-            self.output(
-                CheckState.UNKNOWN, "Could not connect to OPNsense: Failed to resolve hostname"
-            )
+            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection failed")
+        except requests.exceptions.RequestException as e:
+            self.output(CheckState.UNKNOWN, f"Could not connect to OPNsense: {e}")
 
         if response.ok:
-            return response.json()
+            try:
+                return response.json()
+            except ValueError:
+                self.output(
+                    CheckState.UNKNOWN, "Could not fetch data from API: response is not valid JSON"
+                )
 
         message = "Could not fetch data from API: "
 
         if response.status_code == 401:
-            message += "Could not connection to OPNsense: invalid username or password"
+            message += "invalid API key or secret"
         elif response.status_code == 403:
             message += "Access denied. Please check if API user has sufficient permissions."
         else:
@@ -153,29 +158,32 @@ class CheckOPNsense:
             item.strip() for item in self.options.filter.split(",") if item.strip()
         ]
 
-        if self.options.mode == "updates":
-            self.check_updates()
-        elif self.options.mode == "ipsec":
-            self.check_ipsec()
-        elif self.options.mode == "interfaces":
-            self.check_interfaces()
-        elif self.options.mode == "services":
-            self.check_services()
-        elif self.options.mode == "wireguard":
-            self.check_wireguard()
-        elif self.options.mode == "disk":
-            self.check_disk()
-        elif self.options.mode == "memory":
-            self.check_memory()
-        elif self.options.mode == "swap":
-            self.check_swap()
-        elif self.options.mode == "cpu":
-            self.check_cpu()
-        elif self.options.mode == "load":
-            self.check_load()
-        else:
-            message = f"Check mode '{self.options.mode}' not known"
-            self.output(CheckState.UNKNOWN, message)
+        try:
+            if self.options.mode == "updates":
+                self.check_updates()
+            elif self.options.mode == "ipsec":
+                self.check_ipsec()
+            elif self.options.mode == "interfaces":
+                self.check_interfaces()
+            elif self.options.mode == "services":
+                self.check_services()
+            elif self.options.mode == "wireguard":
+                self.check_wireguard()
+            elif self.options.mode == "disk":
+                self.check_disk()
+            elif self.options.mode == "memory":
+                self.check_memory()
+            elif self.options.mode == "swap":
+                self.check_swap()
+            elif self.options.mode == "cpu":
+                self.check_cpu()
+            elif self.options.mode == "load":
+                self.check_load()
+            else:
+                message = f"Check mode '{self.options.mode}' not known"
+                self.output(CheckState.UNKNOWN, message)
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            self.output(CheckState.UNKNOWN, f"Unexpected data received from OPNsense API: {e}")
 
         self.check_output()
 

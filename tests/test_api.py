@@ -89,7 +89,7 @@ class TestHttpErrors:
     @pytest.mark.parametrize(
         ("status_code", "expected"),
         [
-            (401, "invalid username or password"),
+            (401, "invalid API key or secret"),
             (403, "sufficient permissions"),
             (500, "HTTP error code was 500"),
         ],
