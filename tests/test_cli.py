@@ -56,7 +56,7 @@ class TestArgumentErrors:
         assert result.state is CheckState.UNKNOWN
 
     def test_invalid_mode(self, run_cli):
-        result = run_cli(*BASE_ARGS[1:], "-m", "bogus")
+        result = run_cli(*BASE_ARGS, "-m", "bogus")
 
         assert result.state is CheckState.UNKNOWN
         assert "invalid choice" in result.output
@@ -75,7 +75,7 @@ class TestUnhandledErrors:
             raise AttributeError("something changed upstream")
 
         monkeypatch.setattr("check_opnsense.CheckOPNsense.check_cpu", boom)
-        result = run_cli(*BASE_ARGS[1:], "-m", "cpu")
+        result = run_cli(*BASE_ARGS, "-m", "cpu")
 
         assert result.state is CheckState.UNKNOWN
         assert "Unhandled error" in result.output

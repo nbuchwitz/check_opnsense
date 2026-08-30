@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import check_opnsense  # noqa: E402
-from check_opnsense import CheckOPNsense, CheckState  # noqa: E402
+from check_opnsense import CheckOPNsense, CheckState, parse_args  # noqa: E402
 
 
 class CheckOutcome(NamedTuple):
@@ -31,7 +31,6 @@ class CheckOutcome(NamedTuple):
 
 
 BASE_ARGS = [
-    "check_opnsense.py",
     "-H",
     "opnsense.example.com",
     "--api-key",
@@ -42,12 +41,11 @@ BASE_ARGS = [
 
 
 @pytest.fixture
-def build_check(monkeypatch: pytest.MonkeyPatch) -> Callable[..., CheckOPNsense]:
+def build_check() -> Callable[..., CheckOPNsense]:
     """Build a CheckOPNsense instance for a given mode and CLI arguments."""
 
     def _build(mode: str, *extra_args: str) -> CheckOPNsense:
-        monkeypatch.setattr(sys, "argv", BASE_ARGS + ["-m", mode] + list(extra_args))
-        return CheckOPNsense()
+        return CheckOPNsense(parse_args(BASE_ARGS + ["-m", mode] + list(extra_args)))
 
     return _build
 

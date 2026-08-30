@@ -26,7 +26,7 @@
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
 import sys
-from typing import Dict, NoReturn, Union
+from typing import Dict, NoReturn, Optional, Sequence, Union
 
 try:
     import argparse
@@ -70,6 +70,17 @@ class CheckOPNsense:
 
     VERSION = "0.5.0"
     API_URL = "https://{host}:{port}/api/{uri}"
+
+    def __init__(self, options: argparse.Namespace) -> None:
+        self.options = options
+        self.perfdata = []
+        self.check_result = CheckState.UNKNOWN
+        self.check_message = ""
+        self.check_details = []
+
+        if self.options.api_insecure:
+            # disable urllib3 warning about insecure requests
+            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
     def check_output(self) -> None:
         """Print check command output with perfdata and return code."""
@@ -199,99 +210,6 @@ class CheckOPNsense:
             self.output(CheckState.UNKNOWN, f"Unexpected data received from OPNsense API: {e}")
 
         self.check_output()
-
-    def parse_args(self) -> None:
-        """Parse CLI arguments."""
-        p = CheckArgumentParser(description="Check command OPNsense firewall monitoring")
-
-        api_opts = p.add_argument_group("API Options")
-
-        api_opts.add_argument(
-            "-H", "--hostname", required=True, help="OPNsense hostname or ip address"
-        )
-        api_opts.add_argument(
-            "-p",
-            "--port",
-            required=False,
-            dest="port",
-            help="OPNsense https-api port",
-            default=443,
-            type=int,
-        )
-        api_opts.add_argument(
-            "--api-key", dest="api_key", required=True, help="API key (See OPNsense user manager)"
-        )
-        api_opts.add_argument(
-            "--api-secret",
-            dest="api_secret",
-            required=True,
-            help="API key (See OPNsense user manager)",
-        )
-        api_opts.add_argument(
-            "-k",
-            "--insecure",
-            dest="api_insecure",
-            action="store_true",
-            default=False,
-            help="Don't verify HTTPS certificate",
-        )
-
-        check_opts = p.add_argument_group("Check Options")
-
-        check_opts.add_argument(
-            "-m",
-            "--mode",
-            choices=(
-                "updates",
-                "ipsec",
-                "interfaces",
-                "services",
-                "wireguard",
-                "disk",
-                "memory",
-                "swap",
-                "cpu",
-                "load",
-            ),
-            required=True,
-            help="Mode to use.",
-        )
-        check_opts.add_argument(
-            "-w",
-            "--warning",
-            dest="treshold_warning",
-            type=float,
-            help="Warning treshold for check value",
-        )
-        check_opts.add_argument(
-            "-c",
-            "--critical",
-            dest="treshold_critical",
-            type=float,
-            help="Critical treshold for check value",
-        )
-        check_opts.add_argument(
-            "-v",
-            "--verbose",
-            action="count",
-            default=0,
-            help="Enable verbose Output max -vvv",
-            required=False,
-        )
-        check_opts.add_argument(
-            "-f",
-            "--filter",
-            type=str,
-            default="",
-            help=(
-                "String that can be used in multiple modes to exclude unwanted items "
-                "from the output or exit code calculation. Example: 'Disk 1, Disk 2'."
-            ),
-        )
-
-        options = p.parse_args()
-
-        self.options = options
 
     def check_updates(self) -> None:
         """Check opnsense for system updates."""
@@ -768,24 +686,101 @@ class CheckOPNsense:
             self.check_result = CheckState.OK
             self.check_message = "Load is ok."
 
-    def __init__(self) -> None:
-        self.options = {}
-        self.perfdata = []
-        self.check_result = CheckState.UNKNOWN
-        self.check_message = ""
-        self.check_details = []
 
-        self.parse_args()
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """Parse CLI arguments."""
+    p = CheckArgumentParser(description="Check command OPNsense firewall monitoring")
 
-        if self.options.api_insecure:
-            # disable urllib3 warning about insecure requests
-            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+    api_opts = p.add_argument_group("API Options")
+
+    api_opts.add_argument("-H", "--hostname", required=True, help="OPNsense hostname or ip address")
+    api_opts.add_argument(
+        "-p",
+        "--port",
+        required=False,
+        dest="port",
+        help="OPNsense https-api port",
+        default=443,
+        type=int,
+    )
+    api_opts.add_argument(
+        "--api-key", dest="api_key", required=True, help="API key (See OPNsense user manager)"
+    )
+    api_opts.add_argument(
+        "--api-secret",
+        dest="api_secret",
+        required=True,
+        help="API key (See OPNsense user manager)",
+    )
+    api_opts.add_argument(
+        "-k",
+        "--insecure",
+        dest="api_insecure",
+        action="store_true",
+        default=False,
+        help="Don't verify HTTPS certificate",
+    )
+
+    check_opts = p.add_argument_group("Check Options")
+
+    check_opts.add_argument(
+        "-m",
+        "--mode",
+        choices=(
+            "updates",
+            "ipsec",
+            "interfaces",
+            "services",
+            "wireguard",
+            "disk",
+            "memory",
+            "swap",
+            "cpu",
+            "load",
+        ),
+        required=True,
+        help="Mode to use.",
+    )
+    check_opts.add_argument(
+        "-w",
+        "--warning",
+        dest="treshold_warning",
+        type=float,
+        help="Warning treshold for check value",
+    )
+    check_opts.add_argument(
+        "-c",
+        "--critical",
+        dest="treshold_critical",
+        type=float,
+        help="Critical treshold for check value",
+    )
+    check_opts.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Enable verbose Output max -vvv",
+        required=False,
+    )
+    check_opts.add_argument(
+        "-f",
+        "--filter",
+        type=str,
+        default="",
+        help=(
+            "String that can be used in multiple modes to exclude unwanted items "
+            "from the output or exit code calculation. Example: 'Disk 1, Disk 2'."
+        ),
+    )
+
+    return p.parse_args(argv)
 
 
 def main() -> None:
     """Run the check command."""
     try:
-        CheckOPNsense().check()
+        CheckOPNsense(parse_args()).check()
     except Exception as e:  # a check plugin must never exit with a traceback
         CheckOPNsense.output(CheckState.UNKNOWN, f"Unhandled error: {e}")
 
