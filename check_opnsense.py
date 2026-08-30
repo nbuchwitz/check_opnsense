@@ -303,18 +303,16 @@ class CheckOPNsense:
         tunnels_disconnected = []
 
         for row in data["rows"]:
-            if not row["connected"]:
-                self.check_result = CheckState.WARNING
-                tunnels_disconnected.append(row["phase1desc"])
             if row["connected"]:
                 tunnels_connected.append(row["phase1desc"])
+            else:
+                tunnels_disconnected.append(row["phase1desc"])
 
         if tunnels_disconnected:
-            self.check_message = "IPsec tunnels not connected: "
-            self.check_message += ", ".join(tunnels_disconnected)
+            self.check_result = CheckState.WARNING
+            self.check_message = "IPsec tunnels not connected: " + ", ".join(tunnels_disconnected)
         elif tunnels_connected:
-            self.check_message = "IPsec tunnels connected: "
-            self.check_message += ", ".join(tunnels_connected)
+            self.check_message = "IPsec tunnels connected: " + ", ".join(tunnels_connected)
         else:
             self.check_message = "No IPsec tunnels configured"
 
