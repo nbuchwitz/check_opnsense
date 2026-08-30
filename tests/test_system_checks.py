@@ -211,3 +211,25 @@ class TestDisk:
 
         assert result.state is CheckState.UNKNOWN
         assert "No disks found" in result.message
+
+
+class TestActivityParsing:
+    """The top(1) style output is found by label, not by position."""
+
+    def test_extra_header_line_does_not_shift_cpu(self, run_check):
+        payload = api.activity(idle=98.1)
+        payload["headers"].insert(0, "an extra line the API decided to add")
+
+        result = run_check("cpu", payload)
+
+        assert result.state is CheckState.OK
+        assert "CPU usage is 1.9%" in result.message
+
+    def test_extra_header_line_does_not_shift_load(self, run_check):
+        payload = api.activity(load1=0.88, load5=0.72, load15=0.61)
+        payload["headers"].insert(0, "an extra line the API decided to add")
+
+        result = run_check("load", payload)
+
+        assert result.state is CheckState.OK
+        assert "load1=0.88" in result.perfdata

@@ -137,7 +137,6 @@ class CheckOPNsense:
         params: Optional[Dict] = None,
     ) -> Optional[Dict]:
         """Execute request against OPNsense API and return json data."""
-        response = None
         try:
             if method == "post":
                 response = requests.post(
@@ -186,7 +185,6 @@ class CheckOPNsense:
             message += f"HTTP error code was {response.status_code}"
 
         self.output(CheckState.UNKNOWN, message)
-        return {}
 
     @property
     def num_items(self) -> int:
@@ -228,6 +226,11 @@ class CheckOPNsense:
             return CheckState.WARNING
 
         return CheckState.OK
+
+    @staticmethod
+    def activity_header(data: Dict, marker: str) -> str:
+        """Get the top(1) style header line containing a marker."""
+        return next((line for line in data["headers"] if marker in line), "")
 
     def get_perfdata(self) -> str:
         """Get perfdata string."""
@@ -573,18 +576,10 @@ class CheckOPNsense:
 
         warn, crit = self.thresholds(80.0, 90.0)
 
-        # Returned data looks something like this, we want CPU idle percentage in this case:
-        #
-        # "headers": [
-        #  "last pid: 24927;  load averages:  2.06,  0.74,  0.29  up 0+00:00:52    08:44:18",
-        #  "147 threads:   2 running, 123 sleeping, 22 waiting",
-        #  "CPU:  0.0% user,  0.0% nice,  0.4% system,  0.0% interrupt, 99.6% idle",
-        #  "Mem: 159M Active, 117M Inact, 212M Wired, 103M Buf, 471M Free",
-        #  "Swap: 7674M Total, 7674M Free"
-        # ],
-
         try:
-            idle_pct = float(data["headers"][2].split()[9].strip("%"))
+            # "CPU:  0.0% user,  0.0% nice,  0.4% system,  0.0% interrupt, 99.6% idle"
+            tokens = self.activity_header(data, "CPU:").replace(",", " ").split()
+            idle_pct = float(tokens[tokens.index("idle") - 1].strip("%"))
             used_pct = round(100.0 - idle_pct, 1)
         except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
@@ -603,11 +598,13 @@ class CheckOPNsense:
         warn, crit = self.thresholds(3.0, 4.0)
 
         try:
-            averages = data["headers"][0].split()
+            # "last pid: 24927;  load averages:  2.06,  0.74,  0.29  up 0+00:00:52    08:44:18"
+            marker = "load averages:"
+            averages = self.activity_header(data, marker).split(marker)[1].split()
             loads = {
-                "load1": float(averages[5].strip(",")),
-                "load5": float(averages[6].strip(",")),
-                "load15": float(averages[7].strip(",")),
+                "load1": float(averages[0].strip(",")),
+                "load5": float(averages[1].strip(",")),
+                "load15": float(averages[2].strip(",")),
             }
         except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
@@ -688,7 +685,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--verbose",
         action="count",
         default=0,
-        help="Enable verbose Output max -vvv",
+        help="Show additional details, e.g. the items excluded by --filter",
         required=False,
     )
     check_opts.add_argument(
