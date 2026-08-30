@@ -25,6 +25,7 @@
 
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
+import os
 import sys
 from typing import Dict, NoReturn, Optional, Sequence, Tuple, Type
 
@@ -692,13 +693,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
     )
     api_opts.add_argument(
-        "--api-key", dest="api_key", required=True, help="API key (See OPNsense user manager)"
+        "--api-key",
+        dest="api_key",
+        default=os.environ.get("OPNSENSE_API_KEY"),
+        help="API key (See OPNsense user manager), defaults to $OPNSENSE_API_KEY",
     )
     api_opts.add_argument(
         "--api-secret",
         dest="api_secret",
-        required=True,
-        help="API key (See OPNsense user manager)",
+        default=os.environ.get("OPNSENSE_API_SECRET"),
+        help="API secret (See OPNsense user manager), defaults to $OPNSENSE_API_SECRET",
     )
     api_opts.add_argument(
         "-k",
@@ -751,7 +755,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
 
-    return p.parse_args(argv)
+    options = p.parse_args(argv)
+
+    # Credentials may come from the environment instead, to keep them out of the process list
+    for option, variable in (
+        ("api_key", "OPNSENSE_API_KEY"),
+        ("api_secret", "OPNSENSE_API_SECRET"),
+    ):
+        if not getattr(options, option):
+            flag = option.replace("_", "-")
+            p.error(f"--{flag} is required unless {variable} is set")
+
+    return options
 
 
 def main() -> None:

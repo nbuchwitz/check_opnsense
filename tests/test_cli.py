@@ -123,3 +123,35 @@ class TestFilterReporting:
         result = run_check("disk", api.system_disk(api.disk_device("/")), "-f", "/")
 
         assert "--- FILTERED ---" not in result.output
+
+
+class TestCredentials:
+    """Credentials may come from the environment to keep them out of the process list."""
+
+    ARGS_WITHOUT_CREDENTIALS = ["-H", "opnsense.example.com", "-m", "cpu"]
+
+    def test_environment_is_used(self, monkeypatch):
+        monkeypatch.setenv("OPNSENSE_API_KEY", "env-key")
+        monkeypatch.setenv("OPNSENSE_API_SECRET", "env-secret")
+        options = check_opnsense.parse_args(self.ARGS_WITHOUT_CREDENTIALS)
+
+        assert options.api_key == "env-key"
+        assert options.api_secret == "env-secret"
+
+    def test_command_line_wins_over_environment(self, monkeypatch):
+        monkeypatch.setenv("OPNSENSE_API_KEY", "env-key")
+        monkeypatch.setenv("OPNSENSE_API_SECRET", "env-secret")
+        options = check_opnsense.parse_args(BASE_ARGS + ["-m", "cpu"])
+
+        assert options.api_key == "key"
+
+    @pytest.mark.parametrize("missing", ["OPNSENSE_API_KEY", "OPNSENSE_API_SECRET"])
+    def test_missing_credential_is_unknown(self, monkeypatch, run_cli, missing):
+        monkeypatch.setenv("OPNSENSE_API_KEY", "env-key")
+        monkeypatch.setenv("OPNSENSE_API_SECRET", "env-secret")
+        monkeypatch.delenv(missing)
+
+        result = run_cli(*self.ARGS_WITHOUT_CREDENTIALS)
+
+        assert result.state is CheckState.UNKNOWN
+        assert missing in result.output
