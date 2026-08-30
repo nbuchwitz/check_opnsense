@@ -12,8 +12,10 @@ lint.select = [
     "Q",   # flake8-quotes
 ]
 lint.ignore = [
-    "ANN101", # missing-type-self
-    "D107",   # undocumented-public-init
+    "D107", # undocumented-public-init
+    # Resolve the conflicting pydocstyle rule pairs ruff would otherwise warn about
+    "D203", # incorrect-blank-line-before-class, conflicts with D211
+    "D213", # multi-line-summary-second-line, conflicts with D212
 ]
 
 [tool.ruff.lint.mccabe]
