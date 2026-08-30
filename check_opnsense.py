@@ -93,6 +93,7 @@ class CheckOPNsense:
         self.check_message = ""
         self.check_details = []
         self.filtered_items = []
+        self.counts = {state: 0 for state in CheckState}
 
         if self.options.api_insecure:
             # disable urllib3 warning about insecure requests
@@ -186,6 +187,19 @@ class CheckOPNsense:
 
         self.output(CheckState.UNKNOWN, message)
         return {}
+
+    @property
+    def num_items(self) -> int:
+        """Number of items recorded so far."""
+        return sum(self.counts.values())
+
+    def add(self, state: CheckState, detail: str) -> None:
+        """Record the state of a single item and raise the overall result to match."""
+        self.counts[state] += 1
+        self.check_details.append(f"[{state.name}] {detail}")
+
+        if state.value > self.check_result.value:
+            self.check_result = state
 
     def filtered(self, *names: str) -> bool:
         """Tell whether an item is excluded via --filter, remembering it if it is."""
@@ -459,44 +473,35 @@ class CheckOPNsense:
 
         warn, crit = self.thresholds(80.0, 90.0)
 
-        num_critical = 0
-        num_warning = 0
-        num_disks = 0
-
         for dev in data.get("devices", []):
             mountpoint = dev["mountpoint"]
             if self.filtered(mountpoint):
                 continue
 
-            num_disks += 1
             free_space = dev["available"]
             total_space = dev["blocks"]
             used_pct = dev["used_pct"]
             available_pct = 100 - float(used_pct)
 
             state = self.evaluate(used_pct, warn, crit)
-            if state is CheckState.CRITICAL:
-                num_critical += 1
-            elif state is CheckState.WARNING:
-                num_warning += 1
-
             qualifier = "" if state is CheckState.OK else "only "
-            self.check_details.append(
-                f"[{state.name}] {mountpoint} has {qualifier}{free_space} of {total_space}"
-                f" ({available_pct}%) free disk space"
+            self.add(
+                state,
+                f"{mountpoint} has {qualifier}{free_space} of {total_space}"
+                f" ({available_pct}%) free disk space",
             )
 
             # Performance data
             self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
 
-        if num_critical > 0:
-            self.check_result = CheckState.CRITICAL
+        num_critical = self.counts[CheckState.CRITICAL]
+        num_warning = self.counts[CheckState.WARNING]
+
+        if num_critical:
             self.check_message = f"Disk space is critically low on {num_critical} disk(s)"
-        elif num_warning > 0:
-            self.check_result = CheckState.WARNING
+        elif num_warning:
             self.check_message = f"Disk space is low on {num_warning} disk(s)"
-        elif num_disks > 0:
-            self.check_result = CheckState.OK
+        elif self.num_items:
             self.check_message = "Disk space is ok"
         else:
             self.check_result = CheckState.UNKNOWN
@@ -613,9 +618,6 @@ class CheckOPNsense:
 
         warn, crit = self.thresholds(3.0, 4.0)
 
-        num_critical = 0
-        num_warning = 0
-
         try:
             averages = data["headers"][0].split()
             loads = {
@@ -629,23 +631,14 @@ class CheckOPNsense:
             return
 
         for name, value in loads.items():
-            state = self.evaluate(value, warn, crit)
-            if state is CheckState.CRITICAL:
-                num_critical += 1
-            elif state is CheckState.WARNING:
-                num_warning += 1
-
-            self.check_details.append(f"[{state.name}] {name} is {value}")
+            self.add(self.evaluate(value, warn, crit), f"{name} is {value}")
             self.perfdata.append(f"{name}={value};{warn};{crit};0;")
 
-        if num_critical > 0:
-            self.check_result = CheckState.CRITICAL
+        if self.counts[CheckState.CRITICAL]:
             self.check_message = "Load is critical."
-        elif num_warning > 0:
-            self.check_result = CheckState.WARNING
+        elif self.counts[CheckState.WARNING]:
             self.check_message = "Load is warning."
         else:
-            self.check_result = CheckState.OK
             self.check_message = "Load is ok."
 
 
