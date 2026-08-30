@@ -446,6 +446,9 @@ class CheckOPNsense:
         elif online:
             self.check_message = f"{counter_on}/{counter_sum} WireGuard peers are online\n"
             self.check_result = CheckState.OK
+        else:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = "No WireGuard peers found"
 
         for i in offline:
             self.check_message += f"{i}\n"

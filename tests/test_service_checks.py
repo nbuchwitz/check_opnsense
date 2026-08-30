@@ -159,10 +159,21 @@ class TestWireGuard:
     def test_interfaces_are_not_treated_as_peers(self, run_check):
         result = run_check(
             "wireguard",
-            api.wireguard(api.peer("wg0", status="offline", wg_type="interface")),
+            api.wireguard(
+                api.peer("peer-a"),
+                api.peer("wg0", status="offline", wg_type="interface"),
+            ),
         )
 
         assert result.state is CheckState.OK
+        assert "1/1 WireGuard peers are online" in result.message
+
+    def test_no_peers_is_unknown(self, run_check):
+        """An empty peer list means the API told us nothing, not that all is well."""
+        result = run_check("wireguard", api.wireguard())
+
+        assert result.state is CheckState.UNKNOWN
+        assert "No WireGuard peers found" in result.message
 
     def test_filtered_peer_is_ignored(self, run_check):
         result = run_check(
