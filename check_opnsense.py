@@ -5,7 +5,7 @@
 # check_opnsense.py - A check plugin for monitoring OPNsense firewalls.
 # Copyright (C) 2018 - 2026  Nicolai Buchwitz <nb@tipi-net.de>
 #
-# Version: 0.5.0
+# Version: 0.6.0
 #
 # ------------------------------------------------------------------------------
 # This program is free software; you can redistribute it and/or
@@ -80,7 +80,7 @@ class CheckOPNsense:
     enough to register the mode with --mode.
     """
 
-    VERSION = "0.5.0"
+    VERSION = "0.6.0"
     API_URL = "https://{host}:{port}/api/{uri}"
 
     #: Name of the mode as given to --mode
