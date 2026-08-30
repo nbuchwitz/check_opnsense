@@ -146,6 +146,8 @@ class TestWireGuard:
 
         assert result.state is CheckState.OK
         assert "1/1 WireGuard peers are online" in result.message
+        assert "peers_online=1" in result.perfdata
+        assert "peers_offline=0" in result.perfdata
 
     def test_offline_is_critical(self, run_check):
         result = run_check(

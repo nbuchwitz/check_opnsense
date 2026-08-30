@@ -429,6 +429,9 @@ class CheckOPNsense:
             self.check_result = CheckState.UNKNOWN
             self.check_message = "No WireGuard peers found"
 
+        self.perfdata.append(f"peers_online={online}")
+        self.perfdata.append(f"peers_offline={offline}")
+
     def check_disk(self) -> None:
         """Check available disk space."""
         data = self.fetch("diagnostics/system/system_disk")
