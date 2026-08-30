@@ -65,3 +65,17 @@ class TestArgumentErrors:
         result = run_cli("--help")
 
         assert result.state is CheckState.OK
+
+
+class TestUnhandledErrors:
+    """Anything unforeseen still has to look like a check result."""
+
+    def test_unhandled_error_is_unknown(self, monkeypatch, run_cli):
+        def boom(self):
+            raise AttributeError("something changed upstream")
+
+        monkeypatch.setattr("check_opnsense.CheckOPNsense.check_cpu", boom)
+        result = run_cli(*BASE_ARGS[1:], "-m", "cpu")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "Unhandled error" in result.output

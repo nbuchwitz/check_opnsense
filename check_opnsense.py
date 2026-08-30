@@ -42,6 +42,9 @@ except ImportError as e:
 # Timeout for API requests in seconds
 CHECK_API_TIMEOUT = 30
 
+# Errors raised when an API response does not have the expected shape or content
+DATA_ERRORS = (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError)
+
 
 class CheckState(Enum):
     """Check return values."""
@@ -192,7 +195,7 @@ class CheckOPNsense:
             else:
                 message = f"Check mode '{self.options.mode}' not known"
                 self.output(CheckState.UNKNOWN, message)
-        except (KeyError, IndexError, TypeError, ValueError) as e:
+        except DATA_ERRORS as e:
             self.output(CheckState.UNKNOWN, f"Unexpected data received from OPNsense API: {e}")
 
         self.check_output()
@@ -599,7 +602,7 @@ class CheckOPNsense:
             self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
             if arc_mem > 0:
                 self.perfdata.append(f"arc_size={arc_mem}MB;")
-        except Exception as e:
+        except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No memory data received. ({e})"
             return
@@ -654,7 +657,7 @@ class CheckOPNsense:
             if num_devs > 0:
                 total_used_pct = round(float(total_used_swap / total_swap * 100), 1)
 
-        except Exception as e:
+        except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No swap data received. ({e})"
             return
@@ -695,7 +698,7 @@ class CheckOPNsense:
             idle_pct = float(idle_pct[9].strip("%"))
 
             used_pct = round(float(100.00 - idle_pct), 1)
-        except Exception as e:
+        except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No CPU usage data received. ({e})"
             return
@@ -750,7 +753,7 @@ class CheckOPNsense:
 
                 self.perfdata.append(f"{loads[x]}={load_values[x]};{warn};{crit};0;")
 
-        except Exception as e:
+        except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No load data received. ({e})"
             return
@@ -781,7 +784,10 @@ class CheckOPNsense:
 
 def main() -> None:
     """Run the check command."""
-    CheckOPNsense().check()
+    try:
+        CheckOPNsense().check()
+    except Exception as e:  # a check plugin must never exit with a traceback
+        CheckOPNsense.output(CheckState.UNKNOWN, f"Unhandled error: {e}")
 
 
 if __name__ == "__main__":
