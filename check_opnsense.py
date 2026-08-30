@@ -26,7 +26,7 @@
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
 import sys
-from typing import Dict, NoReturn, Optional, Sequence, Union
+from typing import Dict, NoReturn, Optional, Sequence, Tuple, Union
 
 try:
     import argparse
@@ -169,6 +169,26 @@ class CheckOPNsense:
 
         self.output(CheckState.UNKNOWN, message)
         return {}
+
+    def thresholds(self, warning: float, critical: float) -> Tuple[float, float]:
+        """Get the configured thresholds, falling back to the check specific defaults."""
+        configured_warning = self.options.treshold_warning
+        configured_critical = self.options.treshold_critical
+
+        return (
+            warning if configured_warning is None else configured_warning,
+            critical if configured_critical is None else configured_critical,
+        )
+
+    @staticmethod
+    def evaluate(value: float, warning: float, critical: float) -> CheckState:
+        """Map a measured value to a check state."""
+        if value >= critical:
+            return CheckState.CRITICAL
+        if value >= warning:
+            return CheckState.WARNING
+
+        return CheckState.OK
 
     def get_perfdata(self) -> str:
         """Get perfdata string."""
@@ -437,43 +457,37 @@ class CheckOPNsense:
         #     ]
         # }
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
+        warn, crit = self.thresholds(80.0, 90.0)
 
         num_critical = 0
         num_warning = 0
         num_disks = 0
 
-        devices = data.get("devices", [])
-        for dev in devices:
+        for dev in data.get("devices", []):
             mountpoint = dev["mountpoint"]
-            if mountpoint not in self.options.filter:
-                num_disks += 1
-                free_space = dev["available"]
-                total_space = dev["blocks"]
-                used_pct = dev["used_pct"]
-                available_pct = 100 - float(used_pct)
+            if mountpoint in self.options.filter:
+                continue
 
-                if used_pct >= crit:
-                    num_critical += 1
-                    self.check_details.append(
-                        f"[CRITICAL] {mountpoint} has only {free_space} of {total_space}"
-                        + f" ({available_pct}%) free disk space"
-                    )
-                elif used_pct >= warn:
-                    num_warning += 1
-                    self.check_details.append(
-                        f"[WARNING] {mountpoint} has only {free_space} of {total_space}"
-                        + f" ({available_pct}%) free disk space"
-                    )
-                else:
-                    self.check_details.append(
-                        f"[OK] {mountpoint} has {free_space} of {total_space}"
-                        + f" ({available_pct}%) free disk space"
-                    )
+            num_disks += 1
+            free_space = dev["available"]
+            total_space = dev["blocks"]
+            used_pct = dev["used_pct"]
+            available_pct = 100 - float(used_pct)
 
-                # Performance data
-                self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
+            state = self.evaluate(used_pct, warn, crit)
+            if state is CheckState.CRITICAL:
+                num_critical += 1
+            elif state is CheckState.WARNING:
+                num_warning += 1
+
+            qualifier = "" if state is CheckState.OK else "only "
+            self.check_details.append(
+                f"[{state.name}] {mountpoint} has {qualifier}{free_space} of {total_space}"
+                f" ({available_pct}%) free disk space"
+            )
+
+            # Performance data
+            self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
 
         if num_critical > 0:
             self.check_result = CheckState.CRITICAL
@@ -493,80 +507,62 @@ class CheckOPNsense:
         url = self.get_url("diagnostics/system/system_resources")
         data = self.request(url)
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
-
-        total_mem = 0
-        used_mem = 0
-        arc_mem = 0
-        used_pct = 0
+        warn, crit = self.thresholds(80.0, 90.0)
 
         try:
-            total_mem = int(data["memory"].get("total_frmt"))
-            used_mem = int(data["memory"].get("used_frmt"))
+            memory = data["memory"]
+            total_mem = int(memory.get("total_frmt"))
+            used_mem = int(memory.get("used_frmt"))
 
             # Check if the system uses ARC (ZFS Cache) and substract it from used memory
             # since it is filesystem cache that can be cleared by the system to regain space
-            if data["memory"].get("arc_frmt"):
-                arc_mem = int(data["memory"].get("arc_frmt"))
-                used_mem = used_mem - arc_mem
+            arc_mem = int(memory.get("arc_frmt") or 0)
+            used_mem = used_mem - arc_mem
 
             used_pct = round(float(used_mem / total_mem * 100), 1)
-
-            self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
-            if arc_mem > 0:
-                self.perfdata.append(f"arc_size={arc_mem}MB;")
         except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No memory data received. ({e})"
             return
 
-        if used_pct > crit:
-            if arc_mem > 0:
-                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
-            self.check_result = CheckState.CRITICAL
-            self.check_message = f"Memory usage is {used_pct}%"
-        elif used_pct > warn:
-            if arc_mem > 0:
-                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
-            self.check_result = CheckState.WARNING
-            self.check_message = f"Memory usage is {used_pct}%"
-        elif used_pct > 0:
-            if arc_mem > 0:
-                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
-            self.check_result = CheckState.OK
-            self.check_message = f"Memory usage is {used_pct}%"
+        self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
+        if arc_mem > 0:
+            self.perfdata.append(f"arc_size={arc_mem}MB;")
+            self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
+
+        self.check_result = self.evaluate(used_pct, warn, crit)
+        self.check_message = f"Memory usage is {used_pct}%"
 
     def check_swap(self) -> None:
         """Check swap usage."""
         url = self.get_url("diagnostics/system/system_swap")
         data = self.request(url)
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
+        warn, crit = self.thresholds(80.0, 90.0)
 
         num_devs = 0
         total_swap = 0
         total_used_swap = 0
         total_used_pct = 0
 
-        devices = data.get("swap", [])
         try:
-            for dev in devices:
+            for dev in data.get("swap", []):
                 swap_device = dev.get("device")
-                if swap_device not in self.options.filter:
-                    num_devs += 1
-                    swap = int(dev.get("total"))
-                    total_swap += swap
+                if swap_device in self.options.filter:
+                    continue
 
-                    used_swap = int(dev.get("used"))
-                    total_used_swap += used_swap
+                num_devs += 1
+                swap = int(dev.get("total"))
+                total_swap += swap
 
-                    used_pct = round(float(used_swap / swap * 100), 1)
+                used_swap = int(dev.get("used"))
+                total_used_swap += used_swap
 
-                    self.check_details.append(f"Swap usage on {swap_device} is {used_pct}%")
-                    # Performance data
-                    self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
+                used_pct = round(float(used_swap / swap * 100), 1)
+
+                self.check_details.append(f"Swap usage on {swap_device} is {used_pct}%")
+                # Performance data
+                self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
 
             if num_devs > 0:
                 total_used_pct = round(float(total_used_swap / total_swap * 100), 1)
@@ -576,26 +572,20 @@ class CheckOPNsense:
             self.check_message = f"No swap data received. ({e})"
             return
 
-        if total_used_pct > crit:
-            self.check_result = CheckState.CRITICAL
-            self.check_message = f"Total swap usage is {total_used_pct}%"
-        elif total_used_pct > warn:
-            self.check_result = CheckState.WARNING
-            self.check_message = f"Total swap usage is {total_used_pct}%"
-        elif num_devs > 0:
-            self.check_result = CheckState.OK
-            self.check_message = f"Total swap usage is {total_used_pct}%"
-        else:
+        if num_devs == 0:
             self.check_result = CheckState.UNKNOWN
             self.check_message = "No swap found"
+            return
+
+        self.check_result = self.evaluate(total_used_pct, warn, crit)
+        self.check_message = f"Total swap usage is {total_used_pct}%"
 
     def check_cpu(self) -> None:
         """Check CPU usage."""
         url = self.get_url("diagnostics/activity/get_activity")
         data = self.request(url)
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
+        warn, crit = self.thresholds(80.0, 90.0)
 
         # Returned data looks something like this, we want CPU idle percentage in this case:
         #
@@ -608,10 +598,8 @@ class CheckOPNsense:
         # ],
 
         try:
-            idle_pct = data["headers"][2].split()
-            idle_pct = float(idle_pct[9].strip("%"))
-
-            used_pct = round(float(100.00 - idle_pct), 1)
+            idle_pct = float(data["headers"][2].split()[9].strip("%"))
+            used_pct = round(100.0 - idle_pct, 1)
         except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No CPU usage data received. ({e})"
@@ -619,58 +607,40 @@ class CheckOPNsense:
 
         self.perfdata.append(f"cpu_usage={used_pct}%;{warn};{crit};0;100")
 
-        if used_pct > crit:
-            self.check_result = CheckState.CRITICAL
-            self.check_message = f"CPU usage is {used_pct}%"
-        elif used_pct > warn:
-            self.check_result = CheckState.WARNING
-            self.check_message = f"CPU usage is {used_pct}%"
-        else:
-            self.check_result = CheckState.OK
-            self.check_message = f"CPU usage is {used_pct}%"
+        self.check_result = self.evaluate(used_pct, warn, crit)
+        self.check_message = f"CPU usage is {used_pct}%"
 
     def check_load(self) -> None:
         """Check load."""
         url = self.get_url("diagnostics/activity/get_activity")
         data = self.request(url)
 
-        warn = float(self.options.treshold_warning or "3")
-        crit = float(self.options.treshold_critical or "4")
+        warn, crit = self.thresholds(3.0, 4.0)
 
         num_critical = 0
         num_warning = 0
 
         try:
-
-            load1 = data["headers"][0].split()
-            load1 = float(load1[5].strip(","))
-
-            load5 = data["headers"][0].split()
-            load5 = float(load5[6].strip(","))
-
-            load15 = data["headers"][0].split()
-            load15 = float(load15[7].strip(","))
-
-            load_values = [load1, load5, load15]
-            loads = ["load1", "load5", "load15"]
-
-            for x in range(3):
-
-                if load_values[x] >= crit:
-                    num_critical += 1
-                    self.check_details.append(f"[CRITICAL] {loads[x]} is {load_values[x]}")
-                elif load_values[x] >= warn:
-                    num_warning += 1
-                    self.check_details.append(f"[WARNING] {loads[x]} is {load_values[x]}")
-                else:
-                    self.check_details.append(f"[OK] {loads[x]} is {load_values[x]}")
-
-                self.perfdata.append(f"{loads[x]}={load_values[x]};{warn};{crit};0;")
-
+            averages = data["headers"][0].split()
+            loads = {
+                "load1": float(averages[5].strip(",")),
+                "load5": float(averages[6].strip(",")),
+                "load15": float(averages[7].strip(",")),
+            }
         except DATA_ERRORS as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No load data received. ({e})"
             return
+
+        for name, value in loads.items():
+            state = self.evaluate(value, warn, crit)
+            if state is CheckState.CRITICAL:
+                num_critical += 1
+            elif state is CheckState.WARNING:
+                num_warning += 1
+
+            self.check_details.append(f"[{state.name}] {name} is {value}")
+            self.perfdata.append(f"{name}={value};{warn};{crit};0;")
 
         if num_critical > 0:
             self.check_result = CheckState.CRITICAL

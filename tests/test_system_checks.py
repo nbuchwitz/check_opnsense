@@ -33,6 +33,18 @@ class TestCPU:
 
         assert result.state is CheckState.CRITICAL
 
+    def test_value_at_threshold_alerts(self, run_check):
+        """A value exactly on the threshold counts as reaching it."""
+        result = run_check("cpu", api.activity(idle=10.0), "-w", "80", "-c", "90")
+
+        assert result.state is CheckState.CRITICAL
+
+    def test_zero_threshold_is_respected(self, run_check):
+        """A threshold of 0 is a deliberate setting, not a missing one."""
+        result = run_check("cpu", api.activity(idle=99.6), "-w", "0", "-c", "100")
+
+        assert result.state is CheckState.WARNING
+
     @pytest.mark.parametrize("payload", UNUSABLE_PAYLOADS)
     def test_unusable_data_is_unknown(self, run_check, payload):
         result = run_check("cpu", payload)
