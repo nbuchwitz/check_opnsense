@@ -583,6 +583,7 @@ class CheckOPNsense:
         except Exception as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No memory data received. ({e})"
+            return
 
         if used_pct > crit:
             if arc_mem > 0:
@@ -631,11 +632,13 @@ class CheckOPNsense:
                     # Performance data
                     self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
 
+            if num_devs > 0:
                 total_used_pct = round(float(total_used_swap / total_swap * 100), 1)
 
         except Exception as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No swap data received. ({e})"
+            return
 
         if total_used_pct > crit:
             self.check_result = CheckState.CRITICAL
@@ -676,6 +679,7 @@ class CheckOPNsense:
         except Exception as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No CPU usage data received. ({e})"
+            return
 
         self.perfdata.append(f"cpu_usage={used_pct}%;{warn};{crit};0;100")
 
@@ -730,6 +734,7 @@ class CheckOPNsense:
         except Exception as e:
             self.check_result = CheckState.UNKNOWN
             self.check_message = f"No load data received. ({e})"
+            return
 
         if num_critical > 0:
             self.check_result = CheckState.CRITICAL
