@@ -1,11 +1,15 @@
 on: [push, pull_request]
-name: Linter
+name: Tests
 
 jobs:
-  build:
+  test:
     if:
       github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -13,17 +17,13 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "*"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install black ruff
+          python -m pip install pytest requests
 
-      - name: Check styling with black
+      - name: Run tests
         run: |
-          black --check .
-
-      - name: Run ruff linter
-        run: |
-          ruff check .
+          pytest -v
