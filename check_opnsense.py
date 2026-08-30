@@ -92,6 +92,7 @@ class CheckOPNsense:
         self.check_result = CheckState.UNKNOWN
         self.check_message = ""
         self.check_details = []
+        self.filtered_items = []
 
         if self.options.api_insecure:
             # disable urllib3 warning about insecure requests
@@ -99,6 +100,11 @@ class CheckOPNsense:
 
     def check_output(self) -> None:
         """Print check command output with perfdata and return code."""
+        if self.options.verbose >= 1 and self.filtered_items:
+            self.check_details.append("--- FILTERED ---")
+            for item in self.filtered_items:
+                self.check_details.append(f"[FILTER] {item} is excluded by --filter")
+
         message = self.check_message
         if self.perfdata:
             message += self.get_perfdata()
@@ -180,6 +186,14 @@ class CheckOPNsense:
 
         self.output(CheckState.UNKNOWN, message)
         return {}
+
+    def filtered(self, *names: str) -> bool:
+        """Tell whether an item is excluded via --filter, remembering it if it is."""
+        if not any(name in self.options.filter for name in names):
+            return False
+
+        self.filtered_items.append(names[0])
+        return True
 
     def thresholds(self, warning: float, critical: float) -> Tuple[float, float]:
         """Get the configured thresholds, falling back to the check specific defaults."""
@@ -299,20 +313,19 @@ class CheckOPNsense:
 
         interfaces_up = []
         interfaces_down = []
-        interfaces_filtered = []
 
         for row in data["rows"]:
             device = row.get("device", None)
             enabled = row.get("enabled", False)
             status = row.get("status", "Down")
-            if device not in self.options.filter:
-                if enabled:
-                    if status == "up":
-                        interfaces_up.append(device)
-                    else:
-                        interfaces_down.append(device)
-            else:
-                interfaces_filtered.append(device)
+            if self.filtered(device):
+                continue
+
+            if enabled:
+                if status == "up":
+                    interfaces_up.append(device)
+                else:
+                    interfaces_down.append(device)
 
         if interfaces_down:
             self.check_result = CheckState.CRITICAL
@@ -334,11 +347,6 @@ class CheckOPNsense:
         for i in interfaces_up:
             self.check_message += f"[UP] interface {i} is up\n"
 
-        if self.options.verbose >= 1:
-            self.check_message += "\n--- VERBOSE ---\n"
-            for i in interfaces_filtered:
-                self.check_message += f"[FILTER] interface {i} is filtered by --filter\n"
-
     def check_services(self) -> None:
         """Check all configured services status via core/service/search."""
         data = self.fetch("core/service/search", method="post")
@@ -350,7 +358,6 @@ class CheckOPNsense:
 
         running_services = []
         stopped_services = []
-        filtered_services = []
 
         for row in data.get("rows", []):
             service_id = str(row.get("id", ""))
@@ -358,9 +365,7 @@ class CheckOPNsense:
             desc = str(row.get("description", name))
             is_running = row.get("running", 0) == 1
 
-            # Filter by id or name, as given via --filter
-            if service_id in self.options.filter or name in self.options.filter:
-                filtered_services.append(f"{desc} ({service_id})")
+            if self.filtered(f"{desc} ({service_id})", service_id, name):
                 continue
 
             if is_running:
@@ -392,18 +397,12 @@ class CheckOPNsense:
             for service in running_services:
                 self.check_message += f"[RUNNING] {service}\n"
 
-        if filtered_services:
-            self.check_message += "\n--- FILTERED SERVICES ---\n"
-            for service in filtered_services:
-                self.check_message += f"[FILTERED] {service}\n"
-
     def check_wireguard(self) -> None:
         """Check WireGuard tunnel status."""
         data = self.fetch("wireguard/service/show")
 
         online = []
         offline = []
-        filtered = []
 
         for wgs in data["rows"]:
             peer_status = wgs.get("peer-status", "offline")
@@ -414,13 +413,13 @@ class CheckOPNsense:
             if wg_type != "peer":
                 continue
 
-            if name not in self.options.filter:
-                if peer_status == "online":
-                    online.append(f"[OK] Peer {name} is online ({endpoint})")
-                else:
-                    offline.append(f"[CRITICAL] Peer {name} is offline ({endpoint})")
+            if self.filtered(name):
+                continue
+
+            if peer_status == "online":
+                online.append(f"[OK] Peer {name} is online ({endpoint})")
             else:
-                filtered.append(name)
+                offline.append(f"[CRITICAL] Peer {name} is offline ({endpoint})")
 
         counter_on = len(online)
         counter_off = len(offline)
@@ -438,10 +437,6 @@ class CheckOPNsense:
             self.check_message += f"{i}\n"
         for i in online:
             self.check_message += f"{i}\n"
-        if self.options.verbose >= 1:
-            self.check_message += "\n--- VERBOSE ---\n"
-            for i in filtered:
-                self.check_message += f"[FILTER] Peer {i} is filtered by --filter\n"
 
     def check_disk(self) -> None:
         """Check available disk space."""
@@ -470,7 +465,7 @@ class CheckOPNsense:
 
         for dev in data.get("devices", []):
             mountpoint = dev["mountpoint"]
-            if mountpoint in self.options.filter:
+            if self.filtered(mountpoint):
                 continue
 
             num_disks += 1
@@ -551,7 +546,7 @@ class CheckOPNsense:
         try:
             for dev in data.get("swap", []):
                 swap_device = dev.get("device")
-                if swap_device in self.options.filter:
+                if self.filtered(swap_device):
                     continue
 
                 num_devs += 1

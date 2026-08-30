@@ -221,8 +221,8 @@ class TestServicesVerbose:
     def test_filtered_services_are_listed(self, run_check):
         result = run_check("services", api.services(api.service("unbound")), "-v", "-f", "unbound")
 
-        assert "--- FILTERED SERVICES ---" in result.output
-        assert "[FILTERED] unbound (unbound)" in result.output
+        assert "--- FILTERED ---" in result.output
+        assert "[FILTER] unbound (unbound) is excluded by --filter" in result.output
 
     def test_quiet_by_default(self, run_check):
         result = run_check("services", api.services(api.service("unbound")))

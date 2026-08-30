@@ -1,6 +1,7 @@
 """Tests for command line argument handling."""
 
 import api_responses as api
+import pytest
 
 from conftest import BASE_ARGS
 
@@ -86,3 +87,34 @@ def test_every_mode_has_an_implementation():
     """The --mode choices and the check methods must not drift apart."""
     for mode in check_opnsense.CHECK_MODES:
         assert hasattr(check_opnsense.CheckOPNsense, f"check_{mode}")
+
+
+class TestFilterReporting:
+    """Every mode reports what it left out, in the same way."""
+
+    @pytest.mark.parametrize(
+        ("mode", "responses", "excluded"),
+        [
+            pytest.param("disk", api.system_disk(api.disk_device("/")), "/", id="disk"),
+            pytest.param(
+                "swap",
+                api.system_swap(api.swap_device(device="/dev/md0")),
+                "/dev/md0",
+                id="swap",
+            ),
+            pytest.param(
+                "interfaces", api.interfaces(api.interface("em0")), "em0", id="interfaces"
+            ),
+            pytest.param("wireguard", api.wireguard(api.peer("peer-a")), "peer-a", id="wireguard"),
+        ],
+    )
+    def test_filtered_items_are_reported(self, run_check, mode, responses, excluded):
+        result = run_check(mode, responses, "-v", "-f", excluded)
+
+        assert "--- FILTERED ---" in result.output
+        assert f"[FILTER] {excluded} is excluded by --filter" in result.output
+
+    def test_nothing_reported_without_verbose(self, run_check):
+        result = run_check("disk", api.system_disk(api.disk_device("/")), "-f", "/")
+
+        assert "--- FILTERED ---" not in result.output
