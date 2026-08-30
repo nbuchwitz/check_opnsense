@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import check_opnsense  # noqa: E402
-from check_opnsense import CheckOPNsense, CheckState, parse_args  # noqa: E402
+from check_opnsense import CHECKS, CheckOPNsense, CheckState, parse_args  # noqa: E402
 
 
 class CheckOutcome(NamedTuple):
@@ -45,7 +45,8 @@ def build_check() -> Callable[..., CheckOPNsense]:
     """Build a CheckOPNsense instance for a given mode and CLI arguments."""
 
     def _build(mode: str, *extra_args: str) -> CheckOPNsense:
-        return CheckOPNsense(parse_args(BASE_ARGS + ["-m", mode] + list(extra_args)))
+        options = parse_args(BASE_ARGS + ["-m", mode] + list(extra_args))
+        return CHECKS[mode](options)
 
     return _build
 

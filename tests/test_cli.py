@@ -73,20 +73,25 @@ class TestUnhandledErrors:
     """Anything unforeseen still has to look like a check result."""
 
     def test_unhandled_error_is_unknown(self, monkeypatch, run_cli):
-        def boom(self):
+        def boom(self, data):
             raise AttributeError("something changed upstream")
 
-        monkeypatch.setattr("check_opnsense.CheckOPNsense.check_cpu", boom)
+        monkeypatch.setattr("check_opnsense.CheckOPNsense.request", lambda *a, **k: {})
+        monkeypatch.setattr("check_opnsense.CPUCheck.run", boom)
         result = run_cli(*BASE_ARGS, "-m", "cpu")
 
         assert result.state is CheckState.UNKNOWN
         assert "Unhandled error" in result.output
 
 
-def test_every_mode_has_an_implementation():
-    """The --mode choices and the check methods must not drift apart."""
-    for mode in check_opnsense.CHECK_MODES:
-        assert hasattr(check_opnsense.CheckOPNsense, f"check_{mode}")
+def test_every_mode_is_registered_with_an_endpoint():
+    """A registered mode is only usable if it declares what to fetch and how to read it."""
+    assert check_opnsense.CHECKS
+
+    for mode, check in check_opnsense.CHECKS.items():
+        assert check.name == mode
+        assert check.endpoint
+        assert check.run is not check_opnsense.CheckOPNsense.run
 
 
 class TestFilterReporting:
