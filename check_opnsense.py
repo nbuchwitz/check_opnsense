@@ -26,7 +26,7 @@
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
 import sys
-from typing import Dict, Union
+from typing import Dict, NoReturn, Union
 
 try:
     import argparse
@@ -50,6 +50,16 @@ class CheckState(Enum):
     WARNING = 1
     CRITICAL = 2
     UNKNOWN = 3
+
+
+class CheckArgumentParser(argparse.ArgumentParser):
+    """Argument parser which reports usage errors as a check result."""
+
+    def error(self, message: str) -> NoReturn:
+        """Exit with UNKNOWN, since a usage error says nothing about the firewall."""
+        self.print_usage(sys.stderr)
+        CheckOPNsense.output(CheckState.UNKNOWN, f"Invalid command line: {message}")
+        raise SystemExit(CheckState.UNKNOWN.value)
 
 
 class CheckOPNsense:
@@ -189,7 +199,7 @@ class CheckOPNsense:
 
     def parse_args(self) -> None:
         """Parse CLI arguments."""
-        p = argparse.ArgumentParser(description="Check command OPNsense firewall monitoring")
+        p = CheckArgumentParser(description="Check command OPNsense firewall monitoring")
 
         api_opts = p.add_argument_group("API Options")
 

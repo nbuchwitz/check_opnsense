@@ -103,6 +103,6 @@ def run_cli(
             check_opnsense.main()
 
         captured = capsys.readouterr()
-        return CheckOutcome(exc.value.code, (captured.out + captured.err).strip())
+        return CheckOutcome(CheckState(exc.value.code), (captured.out + captured.err).strip())
 
     return _run

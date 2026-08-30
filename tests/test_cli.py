@@ -2,6 +2,8 @@
 
 import api_responses as api
 
+from conftest import BASE_ARGS
+
 from check_opnsense import CheckState
 
 DISKS = api.system_disk(
@@ -43,3 +45,23 @@ class TestFilter:
 
         assert result.state is CheckState.CRITICAL
         assert "critically low on 2 disk(s)" in result.message
+
+
+class TestArgumentErrors:
+    """Usage errors are a problem with the check, not with the firewall."""
+
+    def test_missing_required_argument(self, run_cli):
+        result = run_cli("-m", "cpu")
+
+        assert result.state is CheckState.UNKNOWN
+
+    def test_invalid_mode(self, run_cli):
+        result = run_cli(*BASE_ARGS[1:], "-m", "bogus")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "invalid choice" in result.output
+
+    def test_help_exits_ok(self, run_cli):
+        result = run_cli("--help")
+
+        assert result.state is CheckState.OK
