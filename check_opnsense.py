@@ -346,14 +346,14 @@ class CheckOPNsense:
             if device not in self.options.filter:
                 if enabled:
                     if status == "up":
-                        self.check_result = CheckState.OK
                         interfaces_up.append(device)
                     else:
-                        self.check_result = CheckState.CRITICAL
                         interfaces_down.append(device)
             else:
                 interfaces_filtered.append(device)
+
         if interfaces_down:
+            self.check_result = CheckState.CRITICAL
             counter = len(interfaces_down)
             self.check_message = f"{counter} interface(s) are down\n"
             self.check_message += "\n".join(interfaces_down)
