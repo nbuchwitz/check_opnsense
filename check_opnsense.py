@@ -325,41 +325,32 @@ class CheckOPNsense:
         """Check physical interface status."""
         data = self.fetch("interfaces/overview/interfaces_info")
 
-        interfaces_up = []
-        interfaces_down = []
-
         for row in data["rows"]:
             device = row.get("device", None)
-            enabled = row.get("enabled", False)
-            status = row.get("status", "Down")
             if self.filtered(device):
                 continue
 
-            if enabled:
-                if status == "up":
-                    interfaces_up.append(device)
-                else:
-                    interfaces_down.append(device)
+            if not row.get("enabled", False):
+                continue
+
+            if row.get("status", "Down") == "up":
+                self.add(CheckState.OK, f"interface {device} is up")
+            else:
+                self.add(CheckState.CRITICAL, f"interface {device} is down")
+
+        interfaces_up = self.counts[CheckState.OK]
+        interfaces_down = self.counts[CheckState.CRITICAL]
 
         if interfaces_down:
-            self.check_result = CheckState.CRITICAL
-            counter = len(interfaces_down)
-            self.check_message = f"{counter} interface(s) are down\n"
+            self.check_message = f"{interfaces_down} interface(s) are down"
         elif interfaces_up:
-            counter = len(interfaces_up)
-            self.check_message = f"{counter} interface(s) are up\n"
+            self.check_message = f"{interfaces_up} interface(s) are up"
         else:
             self.check_result = CheckState.UNKNOWN
             self.check_message = "No interfaces found"
 
-        self.perfdata.append(f"interfaces_up={len(interfaces_up)}")
-        self.perfdata.append(f"interfaces_down={len(interfaces_down)}")
-
-        for i in interfaces_down:
-            self.check_message += f"[DOWN] interface {i} is down\n"
-
-        for i in interfaces_up:
-            self.check_message += f"[UP] interface {i} is up\n"
+        self.perfdata.append(f"interfaces_up={interfaces_up}")
+        self.perfdata.append(f"interfaces_down={interfaces_down}")
 
     def check_services(self) -> None:
         """Check all configured services status via core/service/search."""
@@ -415,45 +406,30 @@ class CheckOPNsense:
         """Check WireGuard tunnel status."""
         data = self.fetch("wireguard/service/show")
 
-        online = []
-        offline = []
-
         for wgs in data["rows"]:
-            peer_status = wgs.get("peer-status", "offline")
-            name = wgs.get("name", "unknown")
-            endpoint = wgs.get("endpoint", "unknown")
-            wg_type = wgs.get("type", "peer")
-
-            if wg_type != "peer":
+            if wgs.get("type", "peer") != "peer":
                 continue
 
+            name = wgs.get("name", "unknown")
             if self.filtered(name):
                 continue
 
-            if peer_status == "online":
-                online.append(f"[OK] Peer {name} is online ({endpoint})")
+            endpoint = wgs.get("endpoint", "unknown")
+            if wgs.get("peer-status", "offline") == "online":
+                self.add(CheckState.OK, f"Peer {name} is online ({endpoint})")
             else:
-                offline.append(f"[CRITICAL] Peer {name} is offline ({endpoint})")
+                self.add(CheckState.CRITICAL, f"Peer {name} is offline ({endpoint})")
 
-        counter_on = len(online)
-        counter_off = len(offline)
-
-        counter_sum = counter_off + counter_on
+        online = self.counts[CheckState.OK]
+        offline = self.counts[CheckState.CRITICAL]
 
         if offline:
-            self.check_message = f"{counter_off}/{counter_sum} WireGuard peers are offline\n"
-            self.check_result = CheckState.CRITICAL
+            self.check_message = f"{offline}/{self.num_items} WireGuard peers are offline"
         elif online:
-            self.check_message = f"{counter_on}/{counter_sum} WireGuard peers are online\n"
-            self.check_result = CheckState.OK
+            self.check_message = f"{online}/{self.num_items} WireGuard peers are online"
         else:
             self.check_result = CheckState.UNKNOWN
             self.check_message = "No WireGuard peers found"
-
-        for i in offline:
-            self.check_message += f"{i}\n"
-        for i in online:
-            self.check_message += f"{i}\n"
 
     def check_disk(self) -> None:
         """Check available disk space."""
