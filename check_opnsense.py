@@ -118,6 +118,10 @@ class CheckOPNsense:
         """Get API url for specific command."""
         return self.API_URL.format(host=self.options.hostname, port=self.options.port, uri=command)
 
+    def fetch(self, uri: str, method: str = "get") -> Optional[Dict]:
+        """Fetch the json data of an API endpoint."""
+        return self.request(self.get_url(uri), method)
+
     def request(
         self,
         url: str,
@@ -236,12 +240,11 @@ class CheckOPNsense:
 
     def check_updates(self) -> None:
         """Check opnsense for system updates."""
-        url = self.get_url("core/firmware/status")
-        data = self.request(url)
+        data = self.fetch("core/firmware/status")
 
         if data["status"] in ("none", "error"):
             # no update information available -> trigger check
-            data = self.request(url, method="post")
+            data = self.fetch("core/firmware/status", method="post")
 
         has_update = data["status"] in ("update", "upgrade")
         needs_reboot = data.get("status_reboot", 0) == "1"
@@ -267,8 +270,7 @@ class CheckOPNsense:
 
     def check_ipsec(self) -> None:
         """Check IPsec tunnel status."""
-        url = self.get_url("ipsec/sessions/search_phase1")
-        data = self.request(url)
+        data = self.fetch("ipsec/sessions/search_phase1")
         tunnels_connected = []
         tunnels_disconnected = []
 
@@ -293,8 +295,7 @@ class CheckOPNsense:
 
     def check_interfaces(self) -> None:
         """Check physical interface status."""
-        url = self.get_url("interfaces/overview/interfaces_info")
-        data = self.request(url)
+        data = self.fetch("interfaces/overview/interfaces_info")
 
         interfaces_up = []
         interfaces_down = []
@@ -340,8 +341,7 @@ class CheckOPNsense:
 
     def check_services(self) -> None:
         """Check all configured services status via core/service/search."""
-        url = self.get_url("core/service/search")
-        data = self.request(url, method="post")
+        data = self.fetch("core/service/search", method="post")
 
         if not data or "rows" not in data:
             self.check_result = CheckState.UNKNOWN
@@ -399,8 +399,7 @@ class CheckOPNsense:
 
     def check_wireguard(self) -> None:
         """Check WireGuard tunnel status."""
-        url = self.get_url("wireguard/service/show")
-        data = self.request(url)
+        data = self.fetch("wireguard/service/show")
 
         online = []
         offline = []
@@ -446,8 +445,7 @@ class CheckOPNsense:
 
     def check_disk(self) -> None:
         """Check available disk space."""
-        url = self.get_url("diagnostics/system/system_disk")
-        data = self.request(url)
+        data = self.fetch("diagnostics/system/system_disk")
 
         # Response is of this type:
         # {
@@ -511,8 +509,7 @@ class CheckOPNsense:
 
     def check_memory(self) -> None:
         """Check memory usage."""
-        url = self.get_url("diagnostics/system/system_resources")
-        data = self.request(url)
+        data = self.fetch("diagnostics/system/system_resources")
 
         warn, crit = self.thresholds(80.0, 90.0)
 
@@ -542,8 +539,7 @@ class CheckOPNsense:
 
     def check_swap(self) -> None:
         """Check swap usage."""
-        url = self.get_url("diagnostics/system/system_swap")
-        data = self.request(url)
+        data = self.fetch("diagnostics/system/system_swap")
 
         warn, crit = self.thresholds(80.0, 90.0)
 
@@ -589,8 +585,7 @@ class CheckOPNsense:
 
     def check_cpu(self) -> None:
         """Check CPU usage."""
-        url = self.get_url("diagnostics/activity/get_activity")
-        data = self.request(url)
+        data = self.fetch("diagnostics/activity/get_activity")
 
         warn, crit = self.thresholds(80.0, 90.0)
 
@@ -619,8 +614,7 @@ class CheckOPNsense:
 
     def check_load(self) -> None:
         """Check load."""
-        url = self.get_url("diagnostics/activity/get_activity")
-        data = self.request(url)
+        data = self.fetch("diagnostics/activity/get_activity")
 
         warn, crit = self.thresholds(3.0, 4.0)
 
