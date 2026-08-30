@@ -71,9 +71,25 @@ secret=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
 
 For further information have a look at the [opnsense documentation](https://docs.opnsense.org/development/how-tos/api.html).
 
+## Filtering
+
+Most modes let you skip items you are not interested in. Skipped items count neither for the output
+nor for the exit code.
+
+`-f/--filter` takes a comma separated list of names, for example `-f "/, /var"`.
+
+Add `-v` to see what was left out:
+
+```
+[OK] Disk space is ok | /var=4%;80.0;90.0;0;100
+[OK] /var has 190G of 200G (96.0%) free disk space
+--- FILTERED ---
+[FILTER] / is excluded by --filter
+```
+
 ## Examples
 
-**Check for updates**
+***Check for updates***
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
 [CRITICAL] There are 43 updates available, total download size is 199.1MiB. This update requires a reboot.|upgrade_packages=42 reinstall_packages=1 remove_packages=0 available_updates=43
@@ -85,7 +101,7 @@ For further information have a look at the [opnsense documentation](https://docs
 [OK] - System up to date|upgrade_packages=0 reinstall_packages=0 remove_packages=0 available_updates=0
 ```
 
-**Check for services**
+***Check for services***
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m services
 [CRITICAL] 1 service(s) stopped: ddclient (ddclient)
@@ -108,6 +124,29 @@ For further information have a look at the [opnsense documentation](https://docs
 [RUNNING] Unbound (unbound)
 [RUNNING] Web GUI (webgui)
  | services_running=16 services_stopped=1
+```
+
+***Check interface status***
+
+Options:
+
+* `-f <device>` will not check `<device>` i.e. `-f igb0` will not check the igb0 interface.
+
+One interface being down is enough to make the check critical. The check ignores interfaces that
+are disabled in OPNsense.
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m interfaces
+[OK] 2 interface(s) are up | interfaces_up=2 interfaces_down=0
+[OK] interface igb0 is up
+[OK] interface igb1 is up
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m interfaces
+[CRITICAL] 1 interface(s) are down | interfaces_up=1 interfaces_down=1
+[OK] interface igb0 is up
+[CRITICAL] interface igb1 is down
 ```
 
 ***Check ipsec tunnel status***

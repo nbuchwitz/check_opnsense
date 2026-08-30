@@ -113,7 +113,69 @@ The project commit messages are usually written according to the [conventional c
 
 ### Code Style
 
-The Python source code files are formatted with [black](https://github.com/psf/black).
+The Python source code files are formatted with [black](https://github.com/psf/black) and linted
+with [ruff](https://github.com/astral-sh/ruff), both configured in `pyproject.toml`. CI runs them on
+every push and pull request, so running them yourself first saves a round trip:
+
+```shell
+python -m pip install black ruff pytest
+black --check .
+ruff check .
+```
+
+### Tests
+
+The tests use recorded API responses, so you do not need a firewall to run them:
+
+```shell
+pytest
+```
+
+Please cover what you change. For most cases the `run_check` fixture is enough: it hands a mode a
+canned response and gives back the exit state and the output. The responses themselves are built in
+`tests/api_responses.py`.
+
+### Adding a check mode
+
+A check mode is a subclass of `CheckOPNsense`. Give it a name and an endpoint and implement `run()`,
+which gets the parsed response and decides what to report. The class registers itself, so there is
+no mode list to keep in sync:
+
+```python
+class GatewayCheck(CheckOPNsense):
+    """Check gateway status."""
+
+    name = "gateways"
+    endpoint = "routes/gateway/status"
+    data_error = "No gateway data received."
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the gateway status response."""
+        for gateway in data["items"]:
+            if self.filtered(gateway["name"]):
+                continue
+
+            state = CheckState.OK if gateway["status"] == "none" else CheckState.CRITICAL
+            self.add(state, f"{gateway['name']} is {gateway['status_translated']}")
+
+        self.check_message = f"{self.num_items} gateway(s) checked"
+```
+
+These come from the base class:
+
+| Name | What it is for |
+|---|---|
+| `endpoint`, `method` | what to fetch and how, the result is passed to `run()` |
+| `defaults` | `(warning, critical)` to fall back to, read by `self.thresholds()` |
+| `data_error` | the message to report when the response cannot be read |
+| `self.add(state, detail)` | record one item and raise the overall result to match |
+| `self.counts`, `self.num_items` | how many items ended up in each state |
+| `self.filtered(*names)` | whether `--filter` skips an item, and remembers it for `-v` |
+| `self.evaluate(value, warning, critical)` | turn a value into a state |
+| `self.perfdata`, `self.check_message` | the perfdata entries and the summary line |
+
+A mode that cannot read its data must never report OK. Raising any of the errors in `DATA_ERRORS`
+from `run()` is enough: the base class turns it into UNKNOWN using `data_error`.
 
 <!-- omit in toc -->
 ## Attribution
