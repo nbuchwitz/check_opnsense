@@ -41,7 +41,7 @@ except ImportError as e:
     print(f"Missing python module: {e.msg}")
     sys.exit(255)
 
-# Timeout for API requests in seconds
+# Default timeout for API requests in seconds
 CHECK_API_TIMEOUT = 30
 
 # Errors raised when an API response does not have the expected shape or content
@@ -158,7 +158,7 @@ class CheckOPNsense:
                     verify=not self.options.api_insecure,
                     auth=(self.options.api_key, self.options.api_secret),
                     data=data,
-                    timeout=CHECK_API_TIMEOUT,
+                    timeout=self.options.timeout,
                 )
             elif method == "get":
                 response = requests.get(
@@ -166,7 +166,7 @@ class CheckOPNsense:
                     auth=(self.options.api_key, self.options.api_secret),
                     verify=not self.options.api_insecure,
                     params=params,
-                    timeout=CHECK_API_TIMEOUT,
+                    timeout=self.options.timeout,
                 )
             else:
                 self.output(CheckState.UNKNOWN, f"Unsupported request method: {method}")
@@ -679,6 +679,12 @@ class LoadCheck(CheckOPNsense):
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     p = CheckArgumentParser(description="Check command OPNsense firewall monitoring")
+    p.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {CheckOPNsense.VERSION}",
+    )
 
     api_opts = p.add_argument_group("API Options")
 
@@ -703,6 +709,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         dest="api_secret",
         default=os.environ.get("OPNSENSE_API_SECRET"),
         help="API secret (See OPNsense user manager), defaults to $OPNSENSE_API_SECRET",
+    )
+    api_opts.add_argument(
+        "-t",
+        "--timeout",
+        dest="timeout",
+        type=int,
+        default=CHECK_API_TIMEOUT,
+        help=f"API request timeout in seconds (default: {CHECK_API_TIMEOUT})",
     )
     api_opts.add_argument(
         "-k",

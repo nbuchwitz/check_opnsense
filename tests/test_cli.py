@@ -1,5 +1,7 @@
 """Tests for command line argument handling."""
 
+from unittest import mock
+
 import api_responses as api
 import pytest
 
@@ -155,3 +157,27 @@ class TestCredentials:
 
         assert result.state is CheckState.UNKNOWN
         assert missing in result.output
+
+
+class TestVersionAndTimeout:
+    """Options which do not belong to a single mode."""
+
+    def test_version_is_reported(self, run_cli):
+        result = run_cli("--version")
+
+        assert result.state is CheckState.OK
+        assert check_opnsense.CheckOPNsense.VERSION in result.output
+
+    def test_default_timeout(self):
+        options = check_opnsense.parse_args(BASE_ARGS + ["-m", "cpu"])
+
+        assert options.timeout == check_opnsense.CHECK_API_TIMEOUT
+
+    def test_timeout_is_passed_to_the_request(self, build_check):
+        check = build_check("cpu", "-t", "5")
+
+        with mock.patch("requests.get") as request:
+            request.return_value = mock.Mock(ok=True, json=lambda: {})
+            check.fetch("some/endpoint")
+
+        assert request.call_args.kwargs["timeout"] == 5
