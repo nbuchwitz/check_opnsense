@@ -363,7 +363,6 @@ class CheckOPNsense:
             self.check_result = CheckState.CRITICAL
             counter = len(interfaces_down)
             self.check_message = f"{counter} interface(s) are down\n"
-            self.check_message += "\n".join(interfaces_down)
         elif interfaces_up:
             counter = len(interfaces_up)
             self.check_message = f"{counter} interface(s) are up\n"
