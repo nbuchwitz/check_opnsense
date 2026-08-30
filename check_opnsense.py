@@ -348,7 +348,7 @@ class CheckOPNsense:
             desc = str(row.get("description", name))
             is_running = row.get("running", 0) == 1
 
-            # Filterung nach ID oder Name (über den CLI-Parameter --filter)
+            # Filter by id or name, as given via --filter
             if service_id in self.options.filter or name in self.options.filter:
                 filtered_services.append(f"{desc} ({service_id})")
                 continue
@@ -362,33 +362,30 @@ class CheckOPNsense:
         self.perfdata.append(f"services_running={len(running_services)}")
         self.perfdata.append(f"services_stopped={len(stopped_services)}")
 
-        # Status & Message ermitteln
         if stopped_services:
             self.check_result = CheckState.CRITICAL
             self.check_message = (
                 f"{len(stopped_services)} service(s) stopped: {', '.join(stopped_services)}"
             )
-
-            if self.options.verbose >= 1:
-                self.check_message += "\n\n--- RUNNING SERVICES ---\n"
-                for s in running_services:
-                    self.check_message += f"[RUNNING] {s}\n"
         elif running_services:
             self.check_result = CheckState.OK
             self.check_message = f"All {len(running_services)} configured service(s) are running."
-
-            if self.options.verbose >= 1:
-                self.check_message += "\n\n--- RUNNING SERVICES ---\n"
-                for s in running_services:
-                    self.check_message += f"[RUNNING] {s}\n"
         else:
             self.check_result = CheckState.OK
             self.check_message = "No active services found."
 
-        if self.options.verbose >= 1 and filtered_services:
+        if self.options.verbose < 1:
+            return
+
+        if running_services:
+            self.check_message += "\n\n--- RUNNING SERVICES ---\n"
+            for service in running_services:
+                self.check_message += f"[RUNNING] {service}\n"
+
+        if filtered_services:
             self.check_message += "\n--- FILTERED SERVICES ---\n"
-            for s in filtered_services:
-                self.check_message += f"[FILTERED] {s}\n"
+            for service in filtered_services:
+                self.check_message += f"[FILTERED] {service}\n"
 
     def check_wireguard(self) -> None:
         """Check WireGuard tunnel status."""

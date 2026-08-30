@@ -205,3 +205,24 @@ class TestUpdates:
         result = run_check("updates", {"status": "ok"})
 
         assert result.state is CheckState.UNKNOWN
+
+
+class TestServicesVerbose:
+    """Verbose output of the service check."""
+
+    def test_running_services_are_listed(self, run_check):
+        result = run_check("services", api.services(api.service("unbound")), "-v")
+
+        assert "--- RUNNING SERVICES ---" in result.output
+        assert "[RUNNING] unbound (unbound)" in result.output
+
+    def test_filtered_services_are_listed(self, run_check):
+        result = run_check("services", api.services(api.service("unbound")), "-v", "-f", "unbound")
+
+        assert "--- FILTERED SERVICES ---" in result.output
+        assert "[FILTERED] unbound (unbound)" in result.output
+
+    def test_quiet_by_default(self, run_check):
+        result = run_check("services", api.services(api.service("unbound")))
+
+        assert "--- RUNNING SERVICES ---" not in result.output
