@@ -55,7 +55,7 @@ class CheckState(Enum):
 class CheckOPNsense:
     """Check command for OPNsense."""
 
-    VERSION = "0.4.0"
+    VERSION = "0.5.0"
     API_URL = "https://{host}:{port}/api/{uri}"
 
     def check_output(self) -> None:
