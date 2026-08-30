@@ -26,8 +26,9 @@
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
 import os
+import re
 import sys
-from typing import Dict, NoReturn, Optional, Sequence, Tuple, Type
+from typing import Dict, List, NoReturn, Optional, Sequence, Tuple, Type
 
 try:
     import argparse
@@ -213,9 +214,24 @@ class CheckOPNsense:
         if state.value > self.check_result.value:
             self.check_result = state
 
+    def excluded(self, names: Sequence[str]) -> bool:
+        """Tell whether any of an item's names excludes it from the check."""
+        if any(name in self.options.filter for name in names):
+            return True
+
+        if self.options.filter_regex and any(
+            self.options.filter_regex.search(name) for name in names if name
+        ):
+            return True
+
+        # An include list turns the check into an allow list
+        return bool(self.options.include) and not any(
+            name in self.options.include for name in names
+        )
+
     def filtered(self, *names: str) -> bool:
-        """Tell whether an item is excluded via --filter, remembering it if it is."""
-        if not any(name in self.options.filter for name in names):
+        """Tell whether an item is excluded from the check, remembering it if it is."""
+        if not self.excluded(names):
             return False
 
         self.filtered_items.append(names[0])
@@ -272,10 +288,6 @@ class CheckOPNsense:
     def check(self) -> None:
         """Execute the real check command."""
         self.check_result = CheckState.OK
-
-        self.options.filter = [
-            item.strip() for item in self.options.filter.split(",") if item.strip()
-        ]
 
         try:
             self.run(self.fetch(self.endpoint, self.method))
@@ -676,6 +688,11 @@ class LoadCheck(CheckOPNsense):
             self.check_message = "Load is ok."
 
 
+def split_list(value: str) -> List[str]:
+    """Split a comma separated option value into its entries."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     p = CheckArgumentParser(description="Check command OPNsense firewall monitoring")
@@ -764,12 +781,37 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=str,
         default="",
         help=(
-            "String that can be used in multiple modes to exclude unwanted items "
-            "from the output or exit code calculation. Example: 'Disk 1, Disk 2'."
+            "Comma separated list of items to exclude from the output and the exit code "
+            "calculation. Example: 'Disk 1, Disk 2'."
+        ),
+    )
+    check_opts.add_argument(
+        "--filter-regex",
+        dest="filter_regex",
+        type=str,
+        default="",
+        help="Exclude every item matching this regular expression. Example: 'lo[0-9]+'.",
+    )
+    check_opts.add_argument(
+        "-i",
+        "--include",
+        type=str,
+        default="",
+        help=(
+            "Comma separated list of the only items to check. Everything else is excluded. "
+            "Example: 'igb0, igb1'."
         ),
     )
 
     options = p.parse_args(argv)
+
+    options.filter = split_list(options.filter)
+    options.include = split_list(options.include)
+
+    try:
+        options.filter_regex = re.compile(options.filter_regex) if options.filter_regex else None
+    except re.error as e:
+        p.error(f"--filter-regex is not a valid regular expression: {e}")
 
     # Credentials may come from the environment instead, to keep them out of the process list
     for option, variable in (

@@ -181,3 +181,58 @@ class TestVersionAndTimeout:
             check.fetch("some/endpoint")
 
         assert request.call_args.kwargs["timeout"] == 5
+
+
+INTERFACES = api.interfaces(
+    api.interface("igb0"),
+    api.interface("igb1", status="down"),
+    api.interface("lo0", status="down"),
+)
+
+
+class TestFilterRegex:
+    """The --filter-regex option."""
+
+    def test_matching_items_are_excluded(self, run_check):
+        result = run_check("interfaces", INTERFACES, "--filter-regex", r"lo[0-9]+")
+
+        assert result.state is CheckState.CRITICAL
+        assert "1 interface(s) are down" in result.message
+
+    def test_combines_with_filter(self, run_check):
+        result = run_check("interfaces", INTERFACES, "--filter-regex", r"lo[0-9]+", "-f", "igb1")
+
+        assert result.state is CheckState.OK
+
+    def test_invalid_pattern_is_unknown(self, run_cli):
+        result = run_cli(*BASE_ARGS, "-m", "interfaces", "--filter-regex", "[")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "not a valid regular expression" in result.output
+
+
+class TestInclude:
+    """The --include option."""
+
+    def test_only_listed_items_are_checked(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0")
+
+        assert result.state is CheckState.OK
+        assert "1 interface(s) are up" in result.message
+
+    def test_several_items(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0, igb1")
+
+        assert result.state is CheckState.CRITICAL
+        assert "1 interface(s) are down" in result.message
+
+    def test_excluded_items_are_reported(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0", "-v")
+
+        assert "[FILTER] igb1 is excluded by --filter" in result.output
+        assert "[FILTER] lo0 is excluded by --filter" in result.output
+
+    def test_filter_still_applies_within_the_include_list(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0, igb1", "-f", "igb1")
+
+        assert result.state is CheckState.OK
