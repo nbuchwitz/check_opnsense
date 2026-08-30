@@ -149,10 +149,9 @@ class CheckOPNsense:
         """Execute the real check command."""
         self.check_result = CheckState.OK
 
-        if self.options.filter:
-            self.options.filter = self.options.filter.split(",")
-        else:
-            self.options.filter = []
+        self.options.filter = [
+            item.strip() for item in self.options.filter.split(",") if item.strip()
+        ]
 
         if self.options.mode == "updates":
             self.check_updates()
