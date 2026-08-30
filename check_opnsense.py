@@ -755,5 +755,10 @@ class CheckOPNsense:
             requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 
-opnsense = CheckOPNsense()
-opnsense.check()
+def main() -> None:
+    """Run the check command."""
+    CheckOPNsense().check()
+
+
+if __name__ == "__main__":
+    main()
