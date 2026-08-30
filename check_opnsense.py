@@ -303,10 +303,14 @@ class CheckOPNsense:
         tunnels_disconnected = []
 
         for row in data["rows"]:
+            desc = row["phase1desc"]
+            if self.filtered(desc):
+                continue
+
             if row["connected"]:
-                tunnels_connected.append(row["phase1desc"])
+                tunnels_connected.append(desc)
             else:
-                tunnels_disconnected.append(row["phase1desc"])
+                tunnels_disconnected.append(desc)
 
         if tunnels_disconnected:
             self.check_result = CheckState.WARNING

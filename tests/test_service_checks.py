@@ -131,6 +131,17 @@ class TestIPsec:
         assert result.state is CheckState.WARNING
         assert "IPsec tunnels not connected: site-b" in result.message
 
+    def test_filtered_tunnel_is_ignored(self, run_check):
+        result = run_check(
+            "ipsec",
+            api.ipsec(api.tunnel("site-a"), api.tunnel("site-b", connected=False)),
+            "-f",
+            "site-b",
+        )
+
+        assert result.state is CheckState.OK
+        assert "site-b" not in result.message
+
     def test_no_tunnels(self, run_check):
         result = run_check("ipsec", api.ipsec())
 
