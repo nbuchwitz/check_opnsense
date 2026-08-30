@@ -211,8 +211,8 @@ class CheckOPNsense:
 
     def thresholds(self, warning: float, critical: float) -> Tuple[float, float]:
         """Get the configured thresholds, falling back to the check specific defaults."""
-        configured_warning = self.options.treshold_warning
-        configured_critical = self.options.treshold_critical
+        configured_warning = self.options.threshold_warning
+        configured_critical = self.options.threshold_critical
 
         return (
             warning if configured_warning is None else configured_warning,
@@ -672,16 +672,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     check_opts.add_argument(
         "-w",
         "--warning",
-        dest="treshold_warning",
+        dest="threshold_warning",
         type=float,
-        help="Warning treshold for check value",
+        help="Warning threshold for check value",
     )
     check_opts.add_argument(
         "-c",
         "--critical",
-        dest="treshold_critical",
+        dest="threshold_critical",
         type=float,
-        help="Critical treshold for check value",
+        help="Critical threshold for check value",
     )
     check_opts.add_argument(
         "-v",

@@ -31,7 +31,7 @@ Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
 usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
-                         [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
+                         [-w THRESHOLD_WARNING] [-c THRESHOLD_CRITICAL] [-v] [-f FILTER]
 
 Check command OPNsense firewall monitoring
 
@@ -50,10 +50,10 @@ API Options:
 Check Options:
   -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
                         Mode to use.
-  -w, --warning TRESHOLD_WARNING
-                        Warning treshold for check value
-  -c, --critical TRESHOLD_CRITICAL
-                        Critical treshold for check value
+  -w, --warning THRESHOLD_WARNING
+                        Warning threshold for check value
+  -c, --critical THRESHOLD_CRITICAL
+                        Critical threshold for check value
   -v, --verbose         Enable verbose Output max -vvv
   -f, --filter FILTER   String that can be used in multiple modes to exclude unwanted items from the output or exit code calculation. Example: 'Disk 1, Disk 2'.
 ```
