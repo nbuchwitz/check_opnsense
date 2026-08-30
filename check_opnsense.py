@@ -26,14 +26,15 @@
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
 import sys
-from typing import Dict, NoReturn, Optional, Sequence, Tuple, Union
+from typing import Dict, NoReturn, Optional, Sequence, Tuple
 
 try:
     import argparse
     from enum import Enum
 
     import requests
-    from requests.packages.urllib3.exceptions import InsecureRequestWarning
+    import urllib3
+    from urllib3.exceptions import InsecureRequestWarning
 
 except ImportError as e:
     print(f"Missing python module: {e.msg}")
@@ -94,7 +95,7 @@ class CheckOPNsense:
 
         if self.options.api_insecure:
             # disable urllib3 warning about insecure requests
-            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+            urllib3.disable_warnings(category=InsecureRequestWarning)
 
     def check_output(self) -> None:
         """Print check command output with perfdata and return code."""
@@ -117,7 +118,13 @@ class CheckOPNsense:
         """Get API url for specific command."""
         return self.API_URL.format(host=self.options.hostname, port=self.options.port, uri=command)
 
-    def request(self, url: str, method: str = "get", **kwargs: Dict) -> Union[Dict, None]:
+    def request(
+        self,
+        url: str,
+        method: str = "get",
+        data: Optional[Dict] = None,
+        params: Optional[Dict] = None,
+    ) -> Optional[Dict]:
         """Execute request against OPNsense API and return json data."""
         response = None
         try:
@@ -126,7 +133,7 @@ class CheckOPNsense:
                     url,
                     verify=not self.options.api_insecure,
                     auth=(self.options.api_key, self.options.api_secret),
-                    data=kwargs.get("data", None),
+                    data=data,
                     timeout=CHECK_API_TIMEOUT,
                 )
             elif method == "get":
@@ -134,7 +141,7 @@ class CheckOPNsense:
                     url,
                     auth=(self.options.api_key, self.options.api_secret),
                     verify=not self.options.api_insecure,
-                    params=kwargs.get("params", None),
+                    params=params,
                     timeout=CHECK_API_TIMEOUT,
                 )
             else:
