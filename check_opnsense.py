@@ -45,6 +45,20 @@ CHECK_API_TIMEOUT = 30
 # Errors raised when an API response does not have the expected shape or content
 DATA_ERRORS = (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError)
 
+# Available check modes, each implemented by a CheckOPNsense.check_<mode> method
+CHECK_MODES = (
+    "updates",
+    "ipsec",
+    "interfaces",
+    "services",
+    "wireguard",
+    "disk",
+    "memory",
+    "swap",
+    "cpu",
+    "load",
+)
+
 
 class CheckState(Enum):
     """Check return values."""
@@ -182,30 +196,12 @@ class CheckOPNsense:
             item.strip() for item in self.options.filter.split(",") if item.strip()
         ]
 
+        handler = getattr(self, f"check_{self.options.mode}", None)
+        if handler is None:
+            self.output(CheckState.UNKNOWN, f"Check mode '{self.options.mode}' not implemented")
+
         try:
-            if self.options.mode == "updates":
-                self.check_updates()
-            elif self.options.mode == "ipsec":
-                self.check_ipsec()
-            elif self.options.mode == "interfaces":
-                self.check_interfaces()
-            elif self.options.mode == "services":
-                self.check_services()
-            elif self.options.mode == "wireguard":
-                self.check_wireguard()
-            elif self.options.mode == "disk":
-                self.check_disk()
-            elif self.options.mode == "memory":
-                self.check_memory()
-            elif self.options.mode == "swap":
-                self.check_swap()
-            elif self.options.mode == "cpu":
-                self.check_cpu()
-            elif self.options.mode == "load":
-                self.check_load()
-            else:
-                message = f"Check mode '{self.options.mode}' not known"
-                self.output(CheckState.UNKNOWN, message)
+            handler()
         except DATA_ERRORS as e:
             self.output(CheckState.UNKNOWN, f"Unexpected data received from OPNsense API: {e}")
 
@@ -726,18 +722,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     check_opts.add_argument(
         "-m",
         "--mode",
-        choices=(
-            "updates",
-            "ipsec",
-            "interfaces",
-            "services",
-            "wireguard",
-            "disk",
-            "memory",
-            "swap",
-            "cpu",
-            "load",
-        ),
+        choices=CHECK_MODES,
         required=True,
         help="Mode to use.",
     )

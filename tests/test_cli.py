@@ -4,6 +4,7 @@ import api_responses as api
 
 from conftest import BASE_ARGS
 
+import check_opnsense
 from check_opnsense import CheckState
 
 DISKS = api.system_disk(
@@ -79,3 +80,9 @@ class TestUnhandledErrors:
 
         assert result.state is CheckState.UNKNOWN
         assert "Unhandled error" in result.output
+
+
+def test_every_mode_has_an_implementation():
+    """The --mode choices and the check methods must not drift apart."""
+    for mode in check_opnsense.CHECK_MODES:
+        assert hasattr(check_opnsense.CheckOPNsense, f"check_{mode}")
