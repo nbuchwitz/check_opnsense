@@ -13,6 +13,8 @@ class TestInterfaces:
 
         assert result.state is CheckState.OK
         assert "1 interface(s) are up" in result.message
+        assert "interfaces_up=1" in result.perfdata
+        assert "interfaces_down=0" in result.perfdata
 
     def test_down_interface_is_critical(self, run_check):
         result = run_check("interfaces", api.interfaces(api.interface("em0", status="down")))

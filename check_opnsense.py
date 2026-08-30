@@ -324,6 +324,9 @@ class CheckOPNsense:
             self.check_result = CheckState.UNKNOWN
             self.check_message = "No interfaces found"
 
+        self.perfdata.append(f"interfaces_up={len(interfaces_up)}")
+        self.perfdata.append(f"interfaces_down={len(interfaces_down)}")
+
         for i in interfaces_down:
             self.check_message += f"[DOWN] interface {i} is down\n"
 
