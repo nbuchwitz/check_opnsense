@@ -1,0 +1,238 @@
+"""Tests for command line argument handling."""
+
+from unittest import mock
+
+import api_responses as api
+import pytest
+
+from conftest import BASE_ARGS
+
+import check_opnsense
+from check_opnsense import CheckState
+
+DISKS = api.system_disk(
+    api.disk_device("/", used_pct=95),
+    api.disk_device("/var", used_pct=95),
+)
+
+
+class TestFilter:
+    """The --filter option."""
+
+    def test_single_entry(self, run_check):
+        result = run_check("disk", DISKS, "-f", "/")
+
+        assert result.state is CheckState.CRITICAL
+        assert "critically low on 1 disk(s)" in result.message
+
+    def test_entries_are_stripped(self, run_check):
+        """The documented 'Disk 1, Disk 2' spelling must work, not just 'Disk 1,Disk 2'."""
+        result = run_check("disk", DISKS, "-f", "/, /var")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "No disks found" in result.message
+
+    def test_entries_without_spaces(self, run_check):
+        result = run_check("disk", DISKS, "-f", "/,/var")
+
+        assert result.state is CheckState.UNKNOWN
+
+    def test_empty_entries_are_dropped(self, run_check):
+        """A trailing comma must not filter items with an empty name."""
+        result = run_check("disk", DISKS, "-f", "/,")
+
+        assert result.state is CheckState.CRITICAL
+        assert "critically low on 1 disk(s)" in result.message
+
+    def test_no_filter(self, run_check):
+        result = run_check("disk", DISKS)
+
+        assert result.state is CheckState.CRITICAL
+        assert "critically low on 2 disk(s)" in result.message
+
+
+class TestArgumentErrors:
+    """Usage errors are a problem with the check, not with the firewall."""
+
+    def test_missing_required_argument(self, run_cli):
+        result = run_cli("-m", "cpu")
+
+        assert result.state is CheckState.UNKNOWN
+
+    def test_invalid_mode(self, run_cli):
+        result = run_cli(*BASE_ARGS, "-m", "bogus")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "invalid choice" in result.output
+
+    def test_help_exits_ok(self, run_cli):
+        result = run_cli("--help")
+
+        assert result.state is CheckState.OK
+
+
+class TestUnhandledErrors:
+    """Anything unforeseen still has to look like a check result."""
+
+    def test_unhandled_error_is_unknown(self, monkeypatch, run_cli):
+        def boom(self, data):
+            raise AttributeError("something changed upstream")
+
+        monkeypatch.setattr("check_opnsense.CheckOPNsense.request", lambda *a, **k: {})
+        monkeypatch.setattr("check_opnsense.CPUCheck.run", boom)
+        result = run_cli(*BASE_ARGS, "-m", "cpu")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "Unhandled error" in result.output
+
+
+def test_every_mode_is_registered_with_an_endpoint():
+    """A registered mode is only usable if it declares what to fetch and how to read it."""
+    assert check_opnsense.CHECKS
+
+    for mode, check in check_opnsense.CHECKS.items():
+        assert check.name == mode
+        assert check.endpoint
+        assert check.run is not check_opnsense.CheckOPNsense.run
+
+
+class TestFilterReporting:
+    """Every mode reports what it left out, in the same way."""
+
+    @pytest.mark.parametrize(
+        ("mode", "responses", "excluded"),
+        [
+            pytest.param("disk", api.system_disk(api.disk_device("/")), "/", id="disk"),
+            pytest.param(
+                "swap",
+                api.system_swap(api.swap_device(device="/dev/md0")),
+                "/dev/md0",
+                id="swap",
+            ),
+            pytest.param(
+                "interfaces", api.interfaces(api.interface("em0")), "em0", id="interfaces"
+            ),
+            pytest.param("wireguard", api.wireguard(api.peer("peer-a")), "peer-a", id="wireguard"),
+        ],
+    )
+    def test_filtered_items_are_reported(self, run_check, mode, responses, excluded):
+        result = run_check(mode, responses, "-v", "-f", excluded)
+
+        assert "--- FILTERED ---" in result.output
+        assert f"[FILTER] {excluded} is excluded by --filter" in result.output
+
+    def test_nothing_reported_without_verbose(self, run_check):
+        result = run_check("disk", api.system_disk(api.disk_device("/")), "-f", "/")
+
+        assert "--- FILTERED ---" not in result.output
+
+
+class TestCredentials:
+    """Credentials may come from the environment to keep them out of the process list."""
+
+    ARGS_WITHOUT_CREDENTIALS = ["-H", "opnsense.example.com", "-m", "cpu"]
+
+    def test_environment_is_used(self, monkeypatch):
+        monkeypatch.setenv("OPNSENSE_API_KEY", "env-key")
+        monkeypatch.setenv("OPNSENSE_API_SECRET", "env-secret")
+        options = check_opnsense.parse_args(self.ARGS_WITHOUT_CREDENTIALS)
+
+        assert options.api_key == "env-key"
+        assert options.api_secret == "env-secret"
+
+    def test_command_line_wins_over_environment(self, monkeypatch):
+        monkeypatch.setenv("OPNSENSE_API_KEY", "env-key")
+        monkeypatch.setenv("OPNSENSE_API_SECRET", "env-secret")
+        options = check_opnsense.parse_args(BASE_ARGS + ["-m", "cpu"])
+
+        assert options.api_key == "key"
+
+    @pytest.mark.parametrize("missing", ["OPNSENSE_API_KEY", "OPNSENSE_API_SECRET"])
+    def test_missing_credential_is_unknown(self, monkeypatch, run_cli, missing):
+        monkeypatch.setenv("OPNSENSE_API_KEY", "env-key")
+        monkeypatch.setenv("OPNSENSE_API_SECRET", "env-secret")
+        monkeypatch.delenv(missing)
+
+        result = run_cli(*self.ARGS_WITHOUT_CREDENTIALS)
+
+        assert result.state is CheckState.UNKNOWN
+        assert missing in result.output
+
+
+class TestVersionAndTimeout:
+    """Options which do not belong to a single mode."""
+
+    def test_version_is_reported(self, run_cli):
+        result = run_cli("--version")
+
+        assert result.state is CheckState.OK
+        assert check_opnsense.CheckOPNsense.VERSION in result.output
+
+    def test_default_timeout(self):
+        options = check_opnsense.parse_args(BASE_ARGS + ["-m", "cpu"])
+
+        assert options.timeout == check_opnsense.CHECK_API_TIMEOUT
+
+    def test_timeout_is_passed_to_the_request(self, build_check):
+        check = build_check("cpu", "-t", "5")
+
+        with mock.patch("requests.get") as request:
+            request.return_value = mock.Mock(ok=True, json=lambda: {})
+            check.fetch("some/endpoint")
+
+        assert request.call_args.kwargs["timeout"] == 5
+
+
+INTERFACES = api.interfaces(
+    api.interface("igb0"),
+    api.interface("igb1", status="down"),
+    api.interface("lo0", status="down"),
+)
+
+
+class TestFilterRegex:
+    """The --filter-regex option."""
+
+    def test_matching_items_are_excluded(self, run_check):
+        result = run_check("interfaces", INTERFACES, "--filter-regex", r"lo[0-9]+")
+
+        assert result.state is CheckState.CRITICAL
+        assert "1 interface(s) are down" in result.message
+
+    def test_combines_with_filter(self, run_check):
+        result = run_check("interfaces", INTERFACES, "--filter-regex", r"lo[0-9]+", "-f", "igb1")
+
+        assert result.state is CheckState.OK
+
+    def test_invalid_pattern_is_unknown(self, run_cli):
+        result = run_cli(*BASE_ARGS, "-m", "interfaces", "--filter-regex", "[")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "not a valid regular expression" in result.output
+
+
+class TestInclude:
+    """The --include option."""
+
+    def test_only_listed_items_are_checked(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0")
+
+        assert result.state is CheckState.OK
+        assert "1 interface(s) are up" in result.message
+
+    def test_several_items(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0, igb1")
+
+        assert result.state is CheckState.CRITICAL
+        assert "1 interface(s) are down" in result.message
+
+    def test_excluded_items_are_reported(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0", "-v")
+
+        assert "[FILTER] igb1 is excluded by --filter" in result.output
+        assert "[FILTER] lo0 is excluded by --filter" in result.output
+
+    def test_filter_still_applies_within_the_include_list(self, run_check):
+        result = run_check("interfaces", INTERFACES, "-i", "igb0, igb1", "-f", "igb1")
+
+        assert result.state is CheckState.OK

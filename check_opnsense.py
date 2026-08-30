@@ -5,7 +5,7 @@
 # check_opnsense.py - A check plugin for monitoring OPNsense firewalls.
 # Copyright (C) 2018 - 2026  Nicolai Buchwitz <nb@tipi-net.de>
 #
-# Version: 0.5.0
+# Version: 0.6.0
 #
 # ------------------------------------------------------------------------------
 # This program is free software; you can redistribute it and/or
@@ -25,22 +25,31 @@
 
 """OPNsense monitoring check command for various monitoring systems like Icinga and others."""
 
+import os
+import re
 import sys
-from typing import Dict, Union
+from typing import Dict, List, NoReturn, Optional, Sequence, Tuple, Type
 
 try:
     import argparse
     from enum import Enum
 
     import requests
-    from requests.packages.urllib3.exceptions import InsecureRequestWarning
+    import urllib3
+    from urllib3.exceptions import InsecureRequestWarning
 
 except ImportError as e:
     print(f"Missing python module: {e.msg}")
     sys.exit(255)
 
-# Timeout for API requests in seconds
+# Default timeout for API requests in seconds
 CHECK_API_TIMEOUT = 30
+
+# Errors raised when an API response does not have the expected shape or content
+DATA_ERRORS = (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError)
+
+# Available check modes, filled in by CheckOPNsense.__init_subclass__
+CHECKS: Dict[str, Type["CheckOPNsense"]] = {}
 
 
 class CheckState(Enum):
@@ -52,14 +61,66 @@ class CheckState(Enum):
     UNKNOWN = 3
 
 
-class CheckOPNsense:
-    """Check command for OPNsense."""
+class CheckArgumentParser(argparse.ArgumentParser):
+    """Argument parser which reports usage errors as a check result."""
 
-    VERSION = "0.4.0"
+    def error(self, message: str) -> NoReturn:
+        """Exit with UNKNOWN, since a usage error says nothing about the firewall."""
+        self.print_usage(sys.stderr)
+        CheckOPNsense.output(CheckState.UNKNOWN, f"Invalid command line: {message}")
+        raise SystemExit(CheckState.UNKNOWN.value)
+
+
+class CheckOPNsense:
+    """Base class for a check mode.
+
+    A subclass declares which endpoint it needs and implements run() to turn
+    the response into a result. Fetching, filtering, thresholds, error
+    handling and output are provided here, and defining the subclass is
+    enough to register the mode with --mode.
+    """
+
+    VERSION = "0.6.0"
     API_URL = "https://{host}:{port}/api/{uri}"
+
+    #: Name of the mode as given to --mode
+    name = ""
+    #: API endpoint the check reads its data from
+    endpoint = ""
+    #: HTTP method used to read the endpoint
+    method = "get"
+    #: Warning and critical threshold to use when none are given on the command line
+    defaults: Optional[Tuple[float, float]] = None
+    #: Reported when the response cannot be read
+    data_error = "Unexpected data received from OPNsense API"
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Register a check mode under its name."""
+        super().__init_subclass__(**kwargs)
+
+        if cls.name:
+            CHECKS[cls.name] = cls
+
+    def __init__(self, options: argparse.Namespace) -> None:
+        self.options = options
+        self.perfdata = []
+        self.check_result = CheckState.UNKNOWN
+        self.check_message = ""
+        self.check_details = []
+        self.filtered_items = []
+        self.counts = {state: 0 for state in CheckState}
+
+        if self.options.api_insecure:
+            # disable urllib3 warning about insecure requests
+            urllib3.disable_warnings(category=InsecureRequestWarning)
 
     def check_output(self) -> None:
         """Print check command output with perfdata and return code."""
+        if self.options.verbose >= 1 and self.filtered_items:
+            self.check_details.append("--- FILTERED ---")
+            for item in self.filtered_items:
+                self.check_details.append(f"[FILTER] {item} is excluded by --filter")
+
         message = self.check_message
         if self.perfdata:
             message += self.get_perfdata()
@@ -79,53 +140,128 @@ class CheckOPNsense:
         """Get API url for specific command."""
         return self.API_URL.format(host=self.options.hostname, port=self.options.port, uri=command)
 
-    def request(self, url: str, method: str = "get", **kwargs: Dict) -> Union[Dict, None]:
+    def fetch(self, uri: str, method: str = "get") -> Optional[Dict]:
+        """Fetch the json data of an API endpoint."""
+        return self.request(self.get_url(uri), method)
+
+    def request(
+        self,
+        url: str,
+        method: str = "get",
+        data: Optional[Dict] = None,
+        params: Optional[Dict] = None,
+    ) -> Optional[Dict]:
         """Execute request against OPNsense API and return json data."""
-        response = None
         try:
             if method == "post":
                 response = requests.post(
                     url,
                     verify=not self.options.api_insecure,
                     auth=(self.options.api_key, self.options.api_secret),
-                    data=kwargs.get("data", None),
-                    timeout=CHECK_API_TIMEOUT,
+                    data=data,
+                    timeout=self.options.timeout,
                 )
             elif method == "get":
                 response = requests.get(
                     url,
                     auth=(self.options.api_key, self.options.api_secret),
                     verify=not self.options.api_insecure,
-                    params=kwargs.get("params", None),
-                    timeout=CHECK_API_TIMEOUT,
+                    params=params,
+                    timeout=self.options.timeout,
                 )
             else:
-                self.output(CheckState.CRITICAL, f"Unsupport request method: {method}")
-        except requests.exceptions.ConnectTimeout:
-            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
+                self.output(CheckState.UNKNOWN, f"Unsupported request method: {method}")
         except requests.exceptions.SSLError:
             self.output(
                 CheckState.UNKNOWN, "Could not connect to OPNsense: Certificate validation failed"
             )
+        except requests.exceptions.Timeout:
+            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection timeout")
         except requests.exceptions.ConnectionError:
-            self.output(
-                CheckState.UNKNOWN, "Could not connect to OPNsense: Failed to resolve hostname"
-            )
+            self.output(CheckState.UNKNOWN, "Could not connect to OPNsense: Connection failed")
+        except requests.exceptions.RequestException as e:
+            self.output(CheckState.UNKNOWN, f"Could not connect to OPNsense: {e}")
 
         if response.ok:
-            return response.json()
+            try:
+                return response.json()
+            except ValueError:
+                self.output(
+                    CheckState.UNKNOWN, "Could not fetch data from API: response is not valid JSON"
+                )
 
         message = "Could not fetch data from API: "
 
         if response.status_code == 401:
-            message += "Could not connection to OPNsense: invalid username or password"
+            message += "invalid API key or secret"
         elif response.status_code == 403:
             message += "Access denied. Please check if API user has sufficient permissions."
         else:
             message += f"HTTP error code was {response.status_code}"
 
         self.output(CheckState.UNKNOWN, message)
-        return {}
+
+    @property
+    def num_items(self) -> int:
+        """Number of items recorded so far."""
+        return sum(self.counts.values())
+
+    def add(self, state: CheckState, detail: str) -> None:
+        """Record the state of a single item and raise the overall result to match."""
+        self.counts[state] += 1
+        self.check_details.append(f"[{state.name}] {detail}")
+
+        if state.value > self.check_result.value:
+            self.check_result = state
+
+    def excluded(self, names: Sequence[str]) -> bool:
+        """Tell whether any of an item's names excludes it from the check."""
+        if any(name in self.options.filter for name in names):
+            return True
+
+        if self.options.filter_regex and any(
+            self.options.filter_regex.search(name) for name in names if name
+        ):
+            return True
+
+        # An include list turns the check into an allow list
+        return bool(self.options.include) and not any(
+            name in self.options.include for name in names
+        )
+
+    def filtered(self, *names: str) -> bool:
+        """Tell whether an item is excluded from the check, remembering it if it is."""
+        if not self.excluded(names):
+            return False
+
+        self.filtered_items.append(names[0])
+        return True
+
+    def thresholds(self) -> Tuple[float, float]:
+        """Get the configured thresholds, falling back to the check specific defaults."""
+        warning, critical = self.defaults
+        configured_warning = self.options.threshold_warning
+        configured_critical = self.options.threshold_critical
+
+        return (
+            warning if configured_warning is None else configured_warning,
+            critical if configured_critical is None else configured_critical,
+        )
+
+    @staticmethod
+    def evaluate(value: float, warning: float, critical: float) -> CheckState:
+        """Map a measured value to a check state."""
+        if value >= critical:
+            return CheckState.CRITICAL
+        if value >= warning:
+            return CheckState.WARNING
+
+        return CheckState.OK
+
+    @staticmethod
+    def activity_header(data: Dict, marker: str) -> str:
+        """Get the top(1) style header line containing a marker."""
+        return next((line for line in data["headers"] if marker in line), "")
 
     def get_perfdata(self) -> str:
         """Get perfdata string."""
@@ -145,142 +281,33 @@ class CheckOPNsense:
 
         return details
 
+    def run(self, data: Dict) -> None:
+        """Turn the API response into a check result."""
+        raise NotImplementedError
+
     def check(self) -> None:
         """Execute the real check command."""
         self.check_result = CheckState.OK
 
-        if self.options.filter:
-            self.options.filter = self.options.filter.split(",")
-        else:
-            self.options.filter = []
-
-        if self.options.mode == "updates":
-            self.check_updates()
-        elif self.options.mode == "ipsec":
-            self.check_ipsec()
-        elif self.options.mode == "interfaces":
-            self.check_interfaces()
-        elif self.options.mode == "services":
-            self.check_services()
-        elif self.options.mode == "wireguard":
-            self.check_wireguard()
-        elif self.options.mode == "disk":
-            self.check_disk()
-        elif self.options.mode == "memory":
-            self.check_memory()
-        elif self.options.mode == "swap":
-            self.check_swap()
-        elif self.options.mode == "cpu":
-            self.check_cpu()
-        elif self.options.mode == "load":
-            self.check_load()
-        else:
-            message = f"Check mode '{self.options.mode}' not known"
-            self.output(CheckState.UNKNOWN, message)
+        try:
+            self.run(self.fetch(self.endpoint, self.method))
+        except DATA_ERRORS as e:
+            self.output(CheckState.UNKNOWN, f"{self.data_error} ({e})")
 
         self.check_output()
 
-    def parse_args(self) -> None:
-        """Parse CLI arguments."""
-        p = argparse.ArgumentParser(description="Check command OPNsense firewall monitoring")
 
-        api_opts = p.add_argument_group("API Options")
+class UpdatesCheck(CheckOPNsense):
+    """Check opnsense for system updates."""
 
-        api_opts.add_argument(
-            "-H", "--hostname", required=True, help="OPNsense hostname or ip address"
-        )
-        api_opts.add_argument(
-            "-p",
-            "--port",
-            required=False,
-            dest="port",
-            help="OPNsense https-api port",
-            default=443,
-            type=int,
-        )
-        api_opts.add_argument(
-            "--api-key", dest="api_key", required=True, help="API key (See OPNsense user manager)"
-        )
-        api_opts.add_argument(
-            "--api-secret",
-            dest="api_secret",
-            required=True,
-            help="API key (See OPNsense user manager)",
-        )
-        api_opts.add_argument(
-            "-k",
-            "--insecure",
-            dest="api_insecure",
-            action="store_true",
-            default=False,
-            help="Don't verify HTTPS certificate",
-        )
+    name = "updates"
+    endpoint = "core/firmware/status"
 
-        check_opts = p.add_argument_group("Check Options")
-
-        check_opts.add_argument(
-            "-m",
-            "--mode",
-            choices=(
-                "updates",
-                "ipsec",
-                "interfaces",
-                "services",
-                "wireguard",
-                "disk",
-                "memory",
-                "swap",
-                "cpu",
-                "load",
-            ),
-            required=True,
-            help="Mode to use.",
-        )
-        check_opts.add_argument(
-            "-w",
-            "--warning",
-            dest="treshold_warning",
-            type=float,
-            help="Warning treshold for check value",
-        )
-        check_opts.add_argument(
-            "-c",
-            "--critical",
-            dest="treshold_critical",
-            type=float,
-            help="Critical treshold for check value",
-        )
-        check_opts.add_argument(
-            "-v",
-            "--verbose",
-            action="count",
-            default=0,
-            help="Enable verbose Output max -vvv",
-            required=False,
-        )
-        check_opts.add_argument(
-            "-f",
-            "--filter",
-            type=str,
-            default="",
-            help=(
-                "String that can be used in multiple modes to exclude unwanted items "
-                "from the output or exit code calculation. Example: 'Disk 1, Disk 2'."
-            ),
-        )
-
-        options = p.parse_args()
-
-        self.options = options
-
-    def check_updates(self) -> None:
-        """Check opnsense for system updates."""
-        url = self.get_url("core/firmware/status")
-        data = self.request(url)
-
+    def run(self, data: Dict) -> None:
+        """Evaluate the firmware status response."""
         if data["status"] in ("none", "error"):
             # no update information available -> trigger check
-            data = self.request(url, method="post")
+            data = self.fetch(self.endpoint, method="post")
 
         has_update = data["status"] in ("update", "upgrade")
         needs_reboot = data.get("status_reboot", 0) == "1"
@@ -304,97 +331,97 @@ class CheckOPNsense:
         self.perfdata.append(f"remove_packages={remove_packages}")
         self.perfdata.append(f"available_updates={available_updates}")
 
-    def check_ipsec(self) -> None:
-        """Check IPsec tunnel status."""
-        url = self.get_url("ipsec/sessions/search_phase1")
-        data = self.request(url)
+
+class IPsecCheck(CheckOPNsense):
+    """Check IPsec tunnel status."""
+
+    name = "ipsec"
+    endpoint = "ipsec/sessions/search_phase1"
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the IPsec session response."""
+        data = self.fetch("ipsec/sessions/search_phase1")
         tunnels_connected = []
         tunnels_disconnected = []
 
         for row in data["rows"]:
-            if not row["connected"]:
-                self.check_result = CheckState.WARNING
-                tunnels_disconnected.append(row["phase1desc"])
+            desc = row["phase1desc"]
+            if self.filtered(desc):
+                continue
+
             if row["connected"]:
-                tunnels_connected.append(row["phase1desc"])
+                tunnels_connected.append(desc)
+            else:
+                tunnels_disconnected.append(desc)
 
         if tunnels_disconnected:
-            self.check_message = "IPsec tunnels not connected: "
-            self.check_message += ", ".join(tunnels_disconnected)
+            self.check_result = CheckState.WARNING
+            self.check_message = "IPsec tunnels not connected: " + ", ".join(tunnels_disconnected)
         elif tunnels_connected:
-            self.check_message = "IPsec tunnels connected: "
-            self.check_message += ", ".join(tunnels_connected)
+            self.check_message = "IPsec tunnels connected: " + ", ".join(tunnels_connected)
         else:
             self.check_message = "No IPsec tunnels configured"
 
         self.perfdata.append(f"tunnels_connected={len(tunnels_connected)}")
         self.perfdata.append(f"tunnels_disconnected={len(tunnels_disconnected)}")
 
-    def check_interfaces(self) -> None:
-        """Check physical interface status."""
-        url = self.get_url("interfaces/overview/interfaces_info")
-        data = self.request(url)
 
-        interfaces_up = []
-        interfaces_down = []
-        interfaces_filtered = []
+class InterfacesCheck(CheckOPNsense):
+    """Check physical interface status."""
 
+    name = "interfaces"
+    endpoint = "interfaces/overview/interfaces_info"
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the interface response."""
         for row in data["rows"]:
             device = row.get("device", None)
-            enabled = row.get("enabled", False)
-            status = row.get("status", "Down")
-            if device not in self.options.filter:
-                if enabled:
-                    if status == "up":
-                        self.check_result = CheckState.OK
-                        interfaces_up.append(device)
-                    else:
-                        self.check_result = CheckState.CRITICAL
-                        interfaces_down.append(device)
+            if self.filtered(device):
+                continue
+
+            if not row.get("enabled", False):
+                continue
+
+            if row.get("status", "Down") == "up":
+                self.add(CheckState.OK, f"interface {device} is up")
             else:
-                interfaces_filtered.append(device)
+                self.add(CheckState.CRITICAL, f"interface {device} is down")
+
+        interfaces_up = self.counts[CheckState.OK]
+        interfaces_down = self.counts[CheckState.CRITICAL]
+
         if interfaces_down:
-            counter = len(interfaces_down)
-            self.check_message = f"{counter} interface(s) are down\n"
-            self.check_message += "\n".join(interfaces_down)
+            self.check_message = f"{interfaces_down} interface(s) are down"
         elif interfaces_up:
-            counter = len(interfaces_up)
-            self.check_message = f"{counter} interface(s) are up\n"
-
-        for i in interfaces_down:
-            self.check_message += f"[DOWN] interface {i} is down\n"
-
-        for i in interfaces_up:
-            self.check_message += f"[UP] interface {i} is up\n"
-
-        if self.options.verbose >= 1:
-            self.check_message += "\n--- VERBOSE ---\n"
-            for i in interfaces_filtered:
-                self.check_message += f"[FILTER] interface {i} is filtered by --filter\n"
-
-    def check_services(self) -> None:
-        """Check all configured services status via core/service/search."""
-        url = self.get_url("core/service/search")
-        data = self.request(url, method="post")
-
-        if not data or "rows" not in data:
+            self.check_message = f"{interfaces_up} interface(s) are up"
+        else:
             self.check_result = CheckState.UNKNOWN
-            self.check_message = "Could not retrieve services list from API."
-            return
+            self.check_message = "No interfaces found"
 
+        self.perfdata.append(f"interfaces_up={interfaces_up}")
+        self.perfdata.append(f"interfaces_down={interfaces_down}")
+
+
+class ServicesCheck(CheckOPNsense):
+    """Check all configured services status via core/service/search."""
+
+    name = "services"
+    endpoint = "core/service/search"
+    method = "post"
+    data_error = "Could not retrieve services list from API."
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the service response."""
         running_services = []
         stopped_services = []
-        filtered_services = []
 
-        for row in data.get("rows", []):
+        for row in data["rows"]:
             service_id = str(row.get("id", ""))
             name = str(row.get("name", ""))
             desc = str(row.get("description", name))
             is_running = row.get("running", 0) == 1
 
-            # Filterung nach ID oder Name (über den CLI-Parameter --filter)
-            if service_id in self.options.filter or name in self.options.filter:
-                filtered_services.append(f"{desc} ({service_id})")
+            if self.filtered(f"{desc} ({service_id})", service_id, name):
                 continue
 
             if is_running:
@@ -406,86 +433,74 @@ class CheckOPNsense:
         self.perfdata.append(f"services_running={len(running_services)}")
         self.perfdata.append(f"services_stopped={len(stopped_services)}")
 
-        # Status & Message ermitteln
         if stopped_services:
             self.check_result = CheckState.CRITICAL
             self.check_message = (
                 f"{len(stopped_services)} service(s) stopped: {', '.join(stopped_services)}"
             )
-
-            if self.options.verbose >= 1:
-                self.check_message += "\n\n--- RUNNING SERVICES ---\n"
-                for s in running_services:
-                    self.check_message += f"[RUNNING] {s}\n"
         elif running_services:
             self.check_result = CheckState.OK
             self.check_message = f"All {len(running_services)} configured service(s) are running."
-
-            if self.options.verbose >= 1:
-                self.check_message += "\n\n--- RUNNING SERVICES ---\n"
-                for s in running_services:
-                    self.check_message += f"[RUNNING] {s}\n"
         else:
             self.check_result = CheckState.OK
             self.check_message = "No active services found."
 
-        if self.options.verbose >= 1 and filtered_services:
-            self.check_message += "\n--- FILTERED SERVICES ---\n"
-            for s in filtered_services:
-                self.check_message += f"[FILTERED] {s}\n"
+        if self.options.verbose < 1:
+            return
 
-    def check_wireguard(self) -> None:
-        """Check WireGuard tunnel status."""
-        url = self.get_url("wireguard/service/show")
-        data = self.request(url)
+        if running_services:
+            self.check_message += "\n\n--- RUNNING SERVICES ---\n"
+            for service in running_services:
+                self.check_message += f"[RUNNING] {service}\n"
 
-        online = []
-        offline = []
-        filtered = []
 
+class WireGuardCheck(CheckOPNsense):
+    """Check WireGuard tunnel status."""
+
+    name = "wireguard"
+    endpoint = "wireguard/service/show"
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the WireGuard response."""
         for wgs in data["rows"]:
-            peer_status = wgs.get("peer-status", "offline")
-            name = wgs.get("name", "unknown")
-            endpoint = wgs.get("endpoint", "unknown")
-            wg_type = wgs.get("type", "peer")
-
-            if wg_type != "peer":
+            if wgs.get("type", "peer") != "peer":
                 continue
 
-            if name not in self.options.filter:
-                if peer_status == "online":
-                    online.append(f"[OK] Peer {name} is online ({endpoint})")
-                else:
-                    offline.append(f"[CRITICAL] Peer {name} is offline ({endpoint})")
+            name = wgs.get("name", "unknown")
+            if self.filtered(name):
+                continue
+
+            endpoint = wgs.get("endpoint", "unknown")
+            if wgs.get("peer-status", "offline") == "online":
+                self.add(CheckState.OK, f"Peer {name} is online ({endpoint})")
             else:
-                filtered.append(name)
+                self.add(CheckState.CRITICAL, f"Peer {name} is offline ({endpoint})")
 
-        counter_on = len(online)
-        counter_off = len(offline)
-
-        counter_sum = counter_off + counter_on
+        online = self.counts[CheckState.OK]
+        offline = self.counts[CheckState.CRITICAL]
 
         if offline:
-            self.check_message = f"{counter_off}/{counter_sum} WireGuard peers are offline\n"
-            self.check_result = CheckState.CRITICAL
+            self.check_message = f"{offline}/{self.num_items} WireGuard peers are offline"
         elif online:
-            self.check_message = f"{counter_on}/{counter_sum} WireGuard peers are online\n"
-            self.check_result = CheckState.OK
+            self.check_message = f"{online}/{self.num_items} WireGuard peers are online"
+        else:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = "No WireGuard peers found"
 
-        for i in offline:
-            self.check_message += f"{i}\n"
-        for i in online:
-            self.check_message += f"{i}\n"
-        if self.options.verbose >= 1:
-            self.check_message += "\n--- VERBOSE ---\n"
-            for i in filtered:
-                self.check_message += f"[FILTER] Peer {i} is filtered by --filter\n"
+        self.perfdata.append(f"peers_online={online}")
+        self.perfdata.append(f"peers_offline={offline}")
 
-    def check_disk(self) -> None:
-        """Check available disk space."""
-        url = self.get_url("diagnostics/system/system_disk")
-        data = self.request(url)
 
+class DiskCheck(CheckOPNsense):
+    """Check available disk space."""
+
+    name = "disk"
+    endpoint = "diagnostics/system/system_disk"
+    defaults = (80.0, 90.0)
+    data_error = "No disk data received."
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the disk usage response."""
         # Response is of this type:
         # {
         #     "devices": [
@@ -501,259 +516,323 @@ class CheckOPNsense:
         #     ]
         # }
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
+        warn, crit = self.thresholds()
 
-        num_critical = 0
-        num_warning = 0
-        num_disks = 0
-
-        devices = data.get("devices", [])
-        for dev in devices:
+        for dev in data.get("devices", []):
             mountpoint = dev["mountpoint"]
-            if mountpoint not in self.options.filter:
-                num_disks += 1
-                free_space = dev["available"]
-                total_space = dev["blocks"]
-                used_pct = dev["used_pct"]
-                available_pct = 100 - float(used_pct)
+            if self.filtered(mountpoint):
+                continue
 
-                if used_pct >= crit:
-                    num_critical += 1
-                    self.check_details.append(
-                        f"[CRITICAL] {mountpoint} has only {free_space} of {total_space}"
-                        + f" ({available_pct}%) free disk space"
-                    )
-                elif used_pct >= warn:
-                    num_warning += 1
-                    self.check_details.append(
-                        f"[WARNING] {mountpoint} has only {free_space} of {total_space}"
-                        + f" ({available_pct}%) free disk space"
-                    )
-                else:
-                    self.check_details.append(
-                        f"[OK] {mountpoint} has {free_space} of {total_space}"
-                        + f" ({available_pct}%) free disk space"
-                    )
+            free_space = dev["available"]
+            total_space = dev["blocks"]
+            used_pct = dev["used_pct"]
+            available_pct = 100 - float(used_pct)
 
-                # Performance data
-                self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
+            state = self.evaluate(used_pct, warn, crit)
+            qualifier = "" if state is CheckState.OK else "only "
+            self.add(
+                state,
+                f"{mountpoint} has {qualifier}{free_space} of {total_space}"
+                f" ({available_pct}%) free disk space",
+            )
 
-            if num_critical > 0:
-                self.check_result = CheckState.CRITICAL
-                self.check_message = f"Disk space is critically low on {num_critical} disk(s)"
-            elif num_warning > 0:
-                self.check_result = CheckState.WARNING
-                self.check_message = f"Disk space is low on {num_warning} disk(s)"
-            elif num_disks > 0:
-                self.check_result = CheckState.OK
-                self.check_message = "Disk space is ok"
-            else:
-                self.check_result = CheckState.UNKNOWN
-                self.check_message = "No disks found"
+            # Performance data
+            self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
 
-    def check_memory(self) -> None:
-        """Check memory usage."""
-        url = self.get_url("diagnostics/system/system_resources")
-        data = self.request(url)
+        num_critical = self.counts[CheckState.CRITICAL]
+        num_warning = self.counts[CheckState.WARNING]
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
-
-        total_mem = 0
-        used_mem = 0
-        arc_mem = 0
-        used_pct = 0
-
-        try:
-            total_mem = int(data["memory"].get("total_frmt"))
-            used_mem = int(data["memory"].get("used_frmt"))
-
-            # Check if the system uses ARC (ZFS Cache) and substract it from used memory
-            # since it is filesystem cache that can be cleared by the system to regain space
-            if data["memory"].get("arc_frmt"):
-                arc_mem = int(data["memory"].get("arc_frmt"))
-                used_mem = used_mem - arc_mem
-
-            used_pct = round(float(used_mem / total_mem * 100), 1)
-
-            self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
-            if arc_mem > 0:
-                self.perfdata.append(f"arc_size={arc_mem}MB;")
-        except Exception as e:
+        if num_critical:
+            self.check_message = f"Disk space is critically low on {num_critical} disk(s)"
+        elif num_warning:
+            self.check_message = f"Disk space is low on {num_warning} disk(s)"
+        elif self.num_items:
+            self.check_message = "Disk space is ok"
+        else:
             self.check_result = CheckState.UNKNOWN
-            self.check_message = f"No memory data received. ({e})"
+            self.check_message = "No disks found"
 
-        if used_pct > crit:
-            if arc_mem > 0:
-                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
-            self.check_result = CheckState.CRITICAL
-            self.check_message = f"Memory usage is {used_pct}%"
-        elif used_pct > warn:
-            if arc_mem > 0:
-                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
-            self.check_result = CheckState.WARNING
-            self.check_message = f"Memory usage is {used_pct}%"
-        elif used_pct > 0:
-            if arc_mem > 0:
-                self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
-            self.check_result = CheckState.OK
-            self.check_message = f"Memory usage is {used_pct}%"
 
-    def check_swap(self) -> None:
-        """Check swap usage."""
-        url = self.get_url("diagnostics/system/system_swap")
-        data = self.request(url)
+class MemoryCheck(CheckOPNsense):
+    """Check memory usage."""
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
+    name = "memory"
+    endpoint = "diagnostics/system/system_resources"
+    defaults = (80.0, 90.0)
+    data_error = "No memory data received."
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the memory usage response."""
+        warn, crit = self.thresholds()
+
+        memory = data["memory"]
+        total_mem = int(memory.get("total_frmt"))
+        used_mem = int(memory.get("used_frmt"))
+
+        # Check if the system uses ARC (ZFS Cache) and substract it from used memory
+        # since it is filesystem cache that can be cleared by the system to regain space
+        arc_mem = int(memory.get("arc_frmt") or 0)
+        used_mem = used_mem - arc_mem
+
+        used_pct = round(float(used_mem / total_mem * 100), 1)
+
+        self.perfdata.append(f"memory={used_pct}%;{warn};{crit};0;100;")
+        if arc_mem > 0:
+            self.perfdata.append(f"arc_size={arc_mem}MB;")
+            self.check_details.append(f"Additional memory used for ARC: {arc_mem}MB")
+
+        self.check_result = self.evaluate(used_pct, warn, crit)
+        self.check_message = f"Memory usage is {used_pct}%"
+
+
+class SwapCheck(CheckOPNsense):
+    """Check swap usage."""
+
+    name = "swap"
+    endpoint = "diagnostics/system/system_swap"
+    defaults = (80.0, 90.0)
+    data_error = "No swap data received."
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the swap usage response."""
+        warn, crit = self.thresholds()
 
         num_devs = 0
         total_swap = 0
         total_used_swap = 0
         total_used_pct = 0
 
-        devices = data.get("swap", [])
-        try:
-            for dev in devices:
-                swap_device = dev.get("device")
-                if swap_device not in self.options.filter:
-                    num_devs += 1
-                    swap = int(dev.get("total"))
-                    total_swap += swap
+        for dev in data.get("swap", []):
+            swap_device = dev.get("device")
+            if self.filtered(swap_device):
+                continue
 
-                    used_swap = int(dev.get("used"))
-                    total_used_swap += used_swap
+            num_devs += 1
+            swap = int(dev.get("total"))
+            total_swap += swap
 
-                    used_pct = round(float(used_swap / swap * 100), 1)
+            used_swap = int(dev.get("used"))
+            total_used_swap += used_swap
 
-                    self.check_details.append(f"Swap usage on {swap_device} is {used_pct}%")
-                    # Performance data
-                    self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
+            used_pct = round(float(used_swap / swap * 100), 1)
 
-                total_used_pct = round(float(total_used_swap / total_swap * 100), 1)
+            self.check_details.append(f"Swap usage on {swap_device} is {used_pct}%")
+            # Performance data
+            self.perfdata.append(f"{swap_device}={used_pct}%;{warn};{crit};0;100")
 
-        except Exception as e:
-            self.check_result = CheckState.UNKNOWN
-            self.check_message = f"No swap data received. ({e})"
+        if num_devs > 0:
+            total_used_pct = round(float(total_used_swap / total_swap * 100), 1)
 
-        if total_used_pct > crit:
-            self.check_result = CheckState.CRITICAL
-            self.check_message = f"Total swap usage is {total_used_pct}%"
-        elif total_used_pct > warn:
-            self.check_result = CheckState.WARNING
-            self.check_message = f"Total swap usage is {total_used_pct}%"
-        elif num_devs > 0:
-            self.check_result = CheckState.OK
-            self.check_message = f"Total swap usage is {total_used_pct}%"
-        else:
+        if num_devs == 0:
             self.check_result = CheckState.UNKNOWN
             self.check_message = "No swap found"
+            return
 
-    def check_cpu(self) -> None:
-        """Check CPU usage."""
-        url = self.get_url("diagnostics/activity/get_activity")
-        data = self.request(url)
+        self.check_result = self.evaluate(total_used_pct, warn, crit)
+        self.check_message = f"Total swap usage is {total_used_pct}%"
 
-        warn = float(self.options.treshold_warning or "80")
-        crit = float(self.options.treshold_critical or "90")
 
-        # Returned data looks something like this, we want CPU idle percentage in this case:
-        #
-        # "headers": [
-        #  "last pid: 24927;  load averages:  2.06,  0.74,  0.29  up 0+00:00:52    08:44:18",
-        #  "147 threads:   2 running, 123 sleeping, 22 waiting",
-        #  "CPU:  0.0% user,  0.0% nice,  0.4% system,  0.0% interrupt, 99.6% idle",
-        #  "Mem: 159M Active, 117M Inact, 212M Wired, 103M Buf, 471M Free",
-        #  "Swap: 7674M Total, 7674M Free"
-        # ],
+class CPUCheck(CheckOPNsense):
+    """Check CPU usage."""
 
-        try:
-            idle_pct = data["headers"][2].split()
-            idle_pct = float(idle_pct[9].strip("%"))
+    name = "cpu"
+    endpoint = "diagnostics/activity/get_activity"
+    defaults = (80.0, 90.0)
+    data_error = "No CPU usage data received."
 
-            used_pct = round(float(100.00 - idle_pct), 1)
-        except Exception as e:
-            self.check_result = CheckState.UNKNOWN
-            self.check_message = f"No CPU usage data received. ({e})"
+    def run(self, data: Dict) -> None:
+        """Evaluate the CPU activity response."""
+        warn, crit = self.thresholds()
+
+        # "CPU:  0.0% user,  0.0% nice,  0.4% system,  0.0% interrupt, 99.6% idle"
+        tokens = self.activity_header(data, "CPU:").replace(",", " ").split()
+        idle_pct = float(tokens[tokens.index("idle") - 1].strip("%"))
+        used_pct = round(100.0 - idle_pct, 1)
 
         self.perfdata.append(f"cpu_usage={used_pct}%;{warn};{crit};0;100")
 
-        if used_pct > crit:
-            self.check_result = CheckState.CRITICAL
-            self.check_message = f"CPU usage is {used_pct}%"
-        elif used_pct > warn:
-            self.check_result = CheckState.WARNING
-            self.check_message = f"CPU usage is {used_pct}%"
-        else:
-            self.check_result = CheckState.OK
-            self.check_message = f"CPU usage is {used_pct}%"
+        self.check_result = self.evaluate(used_pct, warn, crit)
+        self.check_message = f"CPU usage is {used_pct}%"
 
-    def check_load(self) -> None:
-        """Check load."""
-        url = self.get_url("diagnostics/activity/get_activity")
-        data = self.request(url)
 
-        warn = float(self.options.treshold_warning or "3")
-        crit = float(self.options.treshold_critical or "4")
+class LoadCheck(CheckOPNsense):
+    """Check load."""
 
-        num_critical = 0
-        num_warning = 0
+    name = "load"
+    endpoint = "diagnostics/activity/get_activity"
+    defaults = (3.0, 4.0)
+    data_error = "No load data received."
 
-        try:
+    def run(self, data: Dict) -> None:
+        """Evaluate the load average response."""
+        warn, crit = self.thresholds()
 
-            load1 = data["headers"][0].split()
-            load1 = float(load1[5].strip(","))
+        # "last pid: 24927;  load averages:  2.06,  0.74,  0.29  up 0+00:00:52    08:44:18"
+        marker = "load averages:"
+        averages = self.activity_header(data, marker).split(marker)[1].split()
+        loads = {
+            "load1": float(averages[0].strip(",")),
+            "load5": float(averages[1].strip(",")),
+            "load15": float(averages[2].strip(",")),
+        }
 
-            load5 = data["headers"][0].split()
-            load5 = float(load5[6].strip(","))
+        for name, value in loads.items():
+            self.add(self.evaluate(value, warn, crit), f"{name} is {value}")
+            self.perfdata.append(f"{name}={value};{warn};{crit};0;")
 
-            load15 = data["headers"][0].split()
-            load15 = float(load15[7].strip(","))
-
-            load_values = [load1, load5, load15]
-            loads = ["load1", "load5", "load15"]
-
-            for x in range(3):
-
-                if load_values[x] >= crit:
-                    num_critical += 1
-                    self.check_details.append(f"[CRITICAL] {loads[x]} is {load_values[x]}")
-                elif load_values[x] >= warn:
-                    num_warning += 1
-                    self.check_details.append(f"[WARNING] {loads[x]} is {load_values[x]}")
-                else:
-                    self.check_details.append(f"[OK] {loads[x]} is {load_values[x]}")
-
-                self.perfdata.append(f"{loads[x]}={load_values[x]};{warn};{crit};0;")
-
-        except Exception as e:
-            self.check_result = CheckState.UNKNOWN
-            self.check_message = f"No load data received. ({e})"
-
-        if num_critical > 0:
-            self.check_result = CheckState.CRITICAL
+        if self.counts[CheckState.CRITICAL]:
             self.check_message = "Load is critical."
-        elif num_warning > 0:
-            self.check_result = CheckState.WARNING
+        elif self.counts[CheckState.WARNING]:
             self.check_message = "Load is warning."
         else:
-            self.check_result = CheckState.OK
             self.check_message = "Load is ok."
 
-    def __init__(self) -> None:
-        self.options = {}
-        self.perfdata = []
-        self.check_result = CheckState.UNKNOWN
-        self.check_message = ""
-        self.check_details = []
 
-        self.parse_args()
-
-        if self.options.api_insecure:
-            # disable urllib3 warning about insecure requests
-            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+def split_list(value: str) -> List[str]:
+    """Split a comma separated option value into its entries."""
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
-opnsense = CheckOPNsense()
-opnsense.check()
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """Parse CLI arguments."""
+    p = CheckArgumentParser(description="Check command OPNsense firewall monitoring")
+    p.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {CheckOPNsense.VERSION}",
+    )
+
+    api_opts = p.add_argument_group("API Options")
+
+    api_opts.add_argument("-H", "--hostname", required=True, help="OPNsense hostname or ip address")
+    api_opts.add_argument(
+        "-p",
+        "--port",
+        required=False,
+        dest="port",
+        help="OPNsense https-api port",
+        default=443,
+        type=int,
+    )
+    api_opts.add_argument(
+        "--api-key",
+        dest="api_key",
+        default=os.environ.get("OPNSENSE_API_KEY"),
+        help="API key (See OPNsense user manager), defaults to $OPNSENSE_API_KEY",
+    )
+    api_opts.add_argument(
+        "--api-secret",
+        dest="api_secret",
+        default=os.environ.get("OPNSENSE_API_SECRET"),
+        help="API secret (See OPNsense user manager), defaults to $OPNSENSE_API_SECRET",
+    )
+    api_opts.add_argument(
+        "-t",
+        "--timeout",
+        dest="timeout",
+        type=int,
+        default=CHECK_API_TIMEOUT,
+        help=f"API request timeout in seconds (default: {CHECK_API_TIMEOUT})",
+    )
+    api_opts.add_argument(
+        "-k",
+        "--insecure",
+        dest="api_insecure",
+        action="store_true",
+        default=False,
+        help="Don't verify HTTPS certificate",
+    )
+
+    check_opts = p.add_argument_group("Check Options")
+
+    check_opts.add_argument(
+        "-m",
+        "--mode",
+        choices=tuple(CHECKS),
+        required=True,
+        help="Mode to use.",
+    )
+    check_opts.add_argument(
+        "-w",
+        "--warning",
+        dest="threshold_warning",
+        type=float,
+        help="Warning threshold for check value",
+    )
+    check_opts.add_argument(
+        "-c",
+        "--critical",
+        dest="threshold_critical",
+        type=float,
+        help="Critical threshold for check value",
+    )
+    check_opts.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Show additional details, e.g. the items excluded by --filter",
+        required=False,
+    )
+    check_opts.add_argument(
+        "-f",
+        "--filter",
+        type=str,
+        default="",
+        help=(
+            "Comma separated list of items to exclude from the output and the exit code "
+            "calculation. Example: 'Disk 1, Disk 2'."
+        ),
+    )
+    check_opts.add_argument(
+        "--filter-regex",
+        dest="filter_regex",
+        type=str,
+        default="",
+        help="Exclude every item matching this regular expression. Example: 'lo[0-9]+'.",
+    )
+    check_opts.add_argument(
+        "-i",
+        "--include",
+        type=str,
+        default="",
+        help=(
+            "Comma separated list of the only items to check. Everything else is excluded. "
+            "Example: 'igb0, igb1'."
+        ),
+    )
+
+    options = p.parse_args(argv)
+
+    options.filter = split_list(options.filter)
+    options.include = split_list(options.include)
+
+    try:
+        options.filter_regex = re.compile(options.filter_regex) if options.filter_regex else None
+    except re.error as e:
+        p.error(f"--filter-regex is not a valid regular expression: {e}")
+
+    # Credentials may come from the environment instead, to keep them out of the process list
+    for option, variable in (
+        ("api_key", "OPNSENSE_API_KEY"),
+        ("api_secret", "OPNSENSE_API_SECRET"),
+    ):
+        if not getattr(options, option):
+            flag = option.replace("_", "-")
+            p.error(f"--{flag} is required unless {variable} is set")
+
+    return options
+
+
+def main() -> None:
+    """Run the check command."""
+    try:
+        options = parse_args()
+        CHECKS[options.mode](options).check()
+    except Exception as e:  # a check plugin must never exit with a traceback
+        CheckOPNsense.output(CheckState.UNKNOWN, f"Unhandled error: {e}")
+
+
+if __name__ == "__main__":
+    main()

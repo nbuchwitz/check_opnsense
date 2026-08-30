@@ -30,32 +30,39 @@ Add a check command definition and a service to Icinga2.
 Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
-                         [-w TRESHOLD_WARNING] [-c TRESHOLD_CRITICAL] [-v] [-f FILTER]
+usage: check_opnsense.py [-h] [-V] -H HOSTNAME [-p PORT] [--api-key API_KEY] [--api-secret API_SECRET] [-t TIMEOUT] [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
+                         [-w THRESHOLD_WARNING] [-c THRESHOLD_CRITICAL] [-v] [-f FILTER] [--filter-regex FILTER_REGEX] [-i INCLUDE]
 
 Check command OPNsense firewall monitoring
 
 options:
   -h, --help            show this help message and exit
+  -V, --version         show program's version number and exit
 
 API Options:
   -H, --hostname HOSTNAME
                         OPNsense hostname or ip address
   -p, --port PORT       OPNsense https-api port
-  --api-key API_KEY     API key (See OPNsense user manager)
+  --api-key API_KEY     API key (See OPNsense user manager), defaults to $OPNSENSE_API_KEY
   --api-secret API_SECRET
-                        API key (See OPNsense user manager)
+                        API secret (See OPNsense user manager), defaults to $OPNSENSE_API_SECRET
+  -t, --timeout TIMEOUT
+                        API request timeout in seconds (default: 30)
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
   -m, --mode {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
                         Mode to use.
-  -w, --warning TRESHOLD_WARNING
-                        Warning treshold for check value
-  -c, --critical TRESHOLD_CRITICAL
-                        Critical treshold for check value
-  -v, --verbose         Enable verbose Output max -vvv
-  -f, --filter FILTER   String that can be used in multiple modes to exclude unwanted items from the output or exit code calculation. Example: 'Disk 1, Disk 2'.
+  -w, --warning THRESHOLD_WARNING
+                        Warning threshold for check value
+  -c, --critical THRESHOLD_CRITICAL
+                        Critical threshold for check value
+  -v, --verbose         Show additional details, e.g. the items excluded by --filter
+  -f, --filter FILTER   Comma separated list of items to exclude from the output and the exit code calculation. Example: 'Disk 1, Disk 2'.
+  --filter-regex FILTER_REGEX
+                        Exclude every item matching this regular expression. Example: 'lo[0-9]+'.
+  -i, --include INCLUDE
+                        Comma separated list of the only items to check. Everything else is excluded. Example: 'igb0, igb1'.
 ```
 
 ## Create API credentials
@@ -71,9 +78,63 @@ secret=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
 
 For further information have a look at the [opnsense documentation](https://docs.opnsense.org/development/how-tos/api.html).
 
+Whatever you pass on the command line shows up in the process list of the monitoring host. Put the
+credentials in the environment to keep them out of it:
+
+```shell
+export OPNSENSE_API_KEY=w86XNZob/8Oq8aC5r0kbNarNtdpoQU781fyoeaOBQsBwkXUt
+export OPNSENSE_API_SECRET=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> -m updates
+```
+
+For a permanent setup, keep the two variables in a file that only the monitoring user can read:
+
+```shell
+cat > /etc/check_opnsense.env <<'EOF'
+OPNSENSE_API_KEY=w86XNZob/8Oq8aC5r0kbNarNtdpoQU781fyoeaOBQsBwkXUt
+OPNSENSE_API_SECRET=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
+EOF
+chmod 600 /etc/check_opnsense.env
+```
+
+The lines have no `export`, because that is the format systemd reads. Make the file belong to the
+user icinga2 runs as, which is not the same on every distribution.
+
+The check plugin itself does not read the file. Something has to put the variables into the
+environment it runs in. Under systemd a drop-in does that for icinga2 and everything it starts:
+
+```ini
+# /etc/systemd/system/icinga2.service.d/opnsense.conf
+[Service]
+EnvironmentFile=/etc/check_opnsense.env
+```
+
+Run `systemctl daemon-reload` and restart icinga2 afterwards. In a shell, read the same file with
+`set -a; . /etc/check_opnsense.env; set +a`.
+
+## Filtering
+
+Most modes let you skip items you are not interested in. Skipped items count neither for the output
+nor for the exit code.
+
+`-f/--filter` takes a comma separated list of names, for example `-f "/, /var"`. If the names share
+a pattern, `--filter-regex 'lo[0-9]+'` saves you from listing them all.
+
+`-i/--include` works the other way round. It checks the listed items and skips everything else.
+`-f` and `--filter-regex` still apply on top of it.
+
+Add `-v` to see what was left out:
+
+```
+[OK] Disk space is ok | /var=4%;80.0;90.0;0;100
+[OK] /var has 190G of 200G (96.0%) free disk space
+--- FILTERED ---
+[FILTER] / is excluded by --filter
+```
+
 ## Examples
 
-**Check for updates**
+***Check for updates***
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m updates
 [CRITICAL] There are 43 updates available, total download size is 199.1MiB. This update requires a reboot.|upgrade_packages=42 reinstall_packages=1 remove_packages=0 available_updates=43
@@ -85,7 +146,7 @@ For further information have a look at the [opnsense documentation](https://docs
 [OK] - System up to date|upgrade_packages=0 reinstall_packages=0 remove_packages=0 available_updates=0
 ```
 
-**Check for services**
+***Check for services***
 ```shell
 ./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET>  -m services
 [CRITICAL] 1 service(s) stopped: ddclient (ddclient)
@@ -108,6 +169,29 @@ For further information have a look at the [opnsense documentation](https://docs
 [RUNNING] Unbound (unbound)
 [RUNNING] Web GUI (webgui)
  | services_running=16 services_stopped=1
+```
+
+***Check interface status***
+
+Options:
+
+* `-f <device>` will not check `<device>` i.e. `-f igb0` will not check the igb0 interface.
+
+One interface being down is enough to make the check critical. The check ignores interfaces that
+are disabled in OPNsense.
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m interfaces
+[OK] 2 interface(s) are up | interfaces_up=2 interfaces_down=0
+[OK] interface igb0 is up
+[OK] interface igb1 is up
+```
+
+```shell
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> --api-key <API_KEY> --api-secret <API_SECRET> -m interfaces
+[CRITICAL] 1 interface(s) are down | interfaces_up=1 interfaces_down=1
+[OK] interface igb0 is up
+[CRITICAL] interface igb1 is down
 ```
 
 ***Check ipsec tunnel status***

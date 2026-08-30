@@ -19,9 +19,12 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 - [Reporting Bugs](#reporting-bugs)
 - [Suggesting Enhancements](#suggesting-enhancements)
 - [Your First Code Contribution](#your-first-code-contribution)
+- [Adding a Check Mode](#adding-a-check-mode)
 - [Improving The Documentation](#improving-the-documentation)
 - [Styleguides](#styleguides)
 - [Commit Messages](#commit-messages)
+- [Code Style](#code-style)
+- [Tests](#tests)
 - [Join The Project Team](#join-the-project-team)
 
 
@@ -101,10 +104,64 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/nbuchw
 
 ### Your First Code Contribution
 1. Fork the repository and create a feature branch (eg. `git checkout -b my-feature`)
-2. Make the changes in the code base
-3. Update README.if if needed
-4. Commit the changes. Keep in mind to break functionality into logical chunks, representet by one commit each. Also don't forget about the [format of the commit message](#commit-messages) and the [Developer Certificate of Origin (DCO)](https://wiki.linuxfoundation.org/dco)
+2. Make the changes in the code base. If you are adding a check, see [Adding a Check Mode](#adding-a-check-mode)
+3. Add or update the [tests](#tests) covering your change, and update the README if needed
+4. Commit the changes. Keep in mind to break functionality into logical chunks, represented by one commit each. Also don't forget about the [format of the commit message](#commit-messages) and the [Developer Certificate of Origin (DCO)](https://wiki.linuxfoundation.org/dco)
 5. Push your feature branch to your fork and open merge request
+
+### Adding a Check Mode
+
+A check mode is a subclass of `CheckOPNsense`. Give it a name and an endpoint and implement `run()`,
+which gets the parsed response and decides what to report. The class registers itself, so there is
+no mode list to keep in sync:
+
+```python
+class GatewayCheck(CheckOPNsense):
+    """Check gateway status."""
+
+    name = "gateways"
+    endpoint = "routes/gateway/status"
+    data_error = "No gateway data received."
+
+    def run(self, data: Dict) -> None:
+        """Evaluate the gateway status response."""
+        for gateway in data["items"]:
+            if self.filtered(gateway["name"]):
+                continue
+
+            state = CheckState.OK if gateway["status"] == "none" else CheckState.CRITICAL
+            self.add(state, f"{gateway['name']} is {gateway['status_translated']}")
+
+        self.check_message = f"{self.num_items} gateway(s) checked"
+```
+
+These come from the base class:
+
+| Name | What it is for |
+|---|---|
+| `endpoint`, `method` | what to fetch and how, the result is passed to `run()` |
+| `defaults` | `(warning, critical)` to fall back to, read by `self.thresholds()` |
+| `data_error` | the message to report when the response cannot be read |
+| `self.add(state, detail)` | record one item and raise the overall result to match |
+| `self.counts`, `self.num_items` | how many items ended up in each state |
+| `self.filtered(*names)` | whether `--filter`, `--filter-regex` or `--include` skips an item, and remembers it for `-v` |
+| `self.evaluate(value, warning, critical)` | turn a value into a state |
+| `self.perfdata`, `self.check_message` | the perfdata entries and the summary line |
+
+A mode must not report OK when it could not read its data. You do not have to handle that yourself,
+just let the error out of `run()`: anything listed in `DATA_ERRORS` comes back as UNKNOWN with your
+`data_error` message. An empty response counts as unreadable too, otherwise a mode that got no items
+at all ends up looking like one that found nothing wrong.
+
+A few more things worth doing:
+
+* keep the class next to the others, since the order they are defined in is the order `--mode` lists
+  them
+* call `self.filtered()` on anything somebody might want to skip
+* emit perfdata, or the values cannot be graphed
+* add a response to `tests/api_responses.py`, plus tests for the good case, the alerting case and a
+  broken response
+* add an example to the README, copied from what the check really prints
 
 ## Styleguides
 ### Commit Messages
@@ -113,7 +170,27 @@ The project commit messages are usually written according to the [conventional c
 
 ### Code Style
 
-The Python source code files are formatted with [black](https://github.com/psf/black).
+The Python source code files are formatted with [black](https://github.com/psf/black) and linted
+with [ruff](https://github.com/astral-sh/ruff), both configured in `pyproject.toml`. CI runs them on
+every push and pull request, so running them yourself first saves a round trip:
+
+```shell
+python -m pip install black ruff pytest
+black --check .
+ruff check .
+```
+
+### Tests
+
+The tests use recorded API responses, so you do not need a firewall to run them:
+
+```shell
+pytest
+```
+
+Please cover what you change. For most cases the `run_check` fixture is enough: it hands a mode a
+canned response and gives back the exit state and the output. The responses themselves are built in
+`tests/api_responses.py`.
 
 <!-- omit in toc -->
 ## Attribution
