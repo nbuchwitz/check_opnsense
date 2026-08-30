@@ -539,18 +539,18 @@ class CheckOPNsense:
                 # Performance data
                 self.perfdata.append(f"{mountpoint}={used_pct}%;{warn};{crit};0;100")
 
-            if num_critical > 0:
-                self.check_result = CheckState.CRITICAL
-                self.check_message = f"Disk space is critically low on {num_critical} disk(s)"
-            elif num_warning > 0:
-                self.check_result = CheckState.WARNING
-                self.check_message = f"Disk space is low on {num_warning} disk(s)"
-            elif num_disks > 0:
-                self.check_result = CheckState.OK
-                self.check_message = "Disk space is ok"
-            else:
-                self.check_result = CheckState.UNKNOWN
-                self.check_message = "No disks found"
+        if num_critical > 0:
+            self.check_result = CheckState.CRITICAL
+            self.check_message = f"Disk space is critically low on {num_critical} disk(s)"
+        elif num_warning > 0:
+            self.check_result = CheckState.WARNING
+            self.check_message = f"Disk space is low on {num_warning} disk(s)"
+        elif num_disks > 0:
+            self.check_result = CheckState.OK
+            self.check_message = "Disk space is ok"
+        else:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = "No disks found"
 
     def check_memory(self) -> None:
         """Check memory usage."""
