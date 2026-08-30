@@ -30,21 +30,24 @@ Add a check command definition and a service to Icinga2.
 Use `./check_opnsense.py -h` to get instructions:
 
 ```shell
-usage: check_opnsense.py [-h] -H HOSTNAME [-p PORT] --api-key API_KEY --api-secret API_SECRET [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
-                         [-w THRESHOLD_WARNING] [-c THRESHOLD_CRITICAL] [-v] [-f FILTER]
+usage: check_opnsense.py [-h] [-V] -H HOSTNAME [-p PORT] [--api-key API_KEY] [--api-secret API_SECRET] [-t TIMEOUT] [-k] -m {updates,ipsec,interfaces,services,wireguard,disk,memory,swap,cpu,load}
+                         [-w THRESHOLD_WARNING] [-c THRESHOLD_CRITICAL] [-v] [-f FILTER] [--filter-regex FILTER_REGEX] [-i INCLUDE]
 
 Check command OPNsense firewall monitoring
 
 options:
   -h, --help            show this help message and exit
+  -V, --version         show program's version number and exit
 
 API Options:
   -H, --hostname HOSTNAME
                         OPNsense hostname or ip address
   -p, --port PORT       OPNsense https-api port
-  --api-key API_KEY     API key (See OPNsense user manager)
+  --api-key API_KEY     API key (See OPNsense user manager), defaults to $OPNSENSE_API_KEY
   --api-secret API_SECRET
-                        API key (See OPNsense user manager)
+                        API secret (See OPNsense user manager), defaults to $OPNSENSE_API_SECRET
+  -t, --timeout TIMEOUT
+                        API request timeout in seconds (default: 30)
   -k, --insecure        Don't verify HTTPS certificate
 
 Check Options:
@@ -54,8 +57,12 @@ Check Options:
                         Warning threshold for check value
   -c, --critical THRESHOLD_CRITICAL
                         Critical threshold for check value
-  -v, --verbose         Enable verbose Output max -vvv
-  -f, --filter FILTER   String that can be used in multiple modes to exclude unwanted items from the output or exit code calculation. Example: 'Disk 1, Disk 2'.
+  -v, --verbose         Show additional details, e.g. the items excluded by --filter
+  -f, --filter FILTER   Comma separated list of items to exclude from the output and the exit code calculation. Example: 'Disk 1, Disk 2'.
+  --filter-regex FILTER_REGEX
+                        Exclude every item matching this regular expression. Example: 'lo[0-9]+'.
+  -i, --include INCLUDE
+                        Comma separated list of the only items to check. Everything else is excluded. Example: 'igb0, igb1'.
 ```
 
 ## Create API credentials
@@ -71,12 +78,50 @@ secret=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
 
 For further information have a look at the [opnsense documentation](https://docs.opnsense.org/development/how-tos/api.html).
 
+Whatever you pass on the command line shows up in the process list of the monitoring host. Put the
+credentials in the environment to keep them out of it:
+
+```shell
+export OPNSENSE_API_KEY=w86XNZob/8Oq8aC5r0kbNarNtdpoQU781fyoeaOBQsBwkXUt
+export OPNSENSE_API_SECRET=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
+./check_opnsense.py -H <OPNSENSE_HOSTNAME> -m updates
+```
+
+For a permanent setup, keep the two variables in a file that only the monitoring user can read:
+
+```shell
+cat > /etc/check_opnsense.env <<'EOF'
+OPNSENSE_API_KEY=w86XNZob/8Oq8aC5r0kbNarNtdpoQU781fyoeaOBQsBwkXUt
+OPNSENSE_API_SECRET=XeD26XVrJ5ilAc/EmglCRC+0j2e57tRsjHwFepOseySWLM53pJASeTA3
+EOF
+chmod 600 /etc/check_opnsense.env
+```
+
+The lines have no `export`, because that is the format systemd reads. Make the file belong to the
+user icinga2 runs as, which is not the same on every distribution.
+
+The check plugin itself does not read the file. Something has to put the variables into the
+environment it runs in. Under systemd a drop-in does that for icinga2 and everything it starts:
+
+```ini
+# /etc/systemd/system/icinga2.service.d/opnsense.conf
+[Service]
+EnvironmentFile=/etc/check_opnsense.env
+```
+
+Run `systemctl daemon-reload` and restart icinga2 afterwards. In a shell, read the same file with
+`set -a; . /etc/check_opnsense.env; set +a`.
+
 ## Filtering
 
 Most modes let you skip items you are not interested in. Skipped items count neither for the output
 nor for the exit code.
 
-`-f/--filter` takes a comma separated list of names, for example `-f "/, /var"`.
+`-f/--filter` takes a comma separated list of names, for example `-f "/, /var"`. If the names share
+a pattern, `--filter-regex 'lo[0-9]+'` saves you from listing them all.
+
+`-i/--include` works the other way round. It checks the listed items and skips everything else.
+`-f` and `--filter-regex` still apply on top of it.
 
 Add `-v` to see what was left out:
 
