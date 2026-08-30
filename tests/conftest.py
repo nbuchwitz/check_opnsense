@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import check_opnsense  # noqa: E402
 from check_opnsense import CheckOPNsense, CheckState  # noqa: E402
 
 
@@ -85,5 +86,23 @@ def run_check(
             check.check()
 
         return CheckOutcome(CheckState(exc.value.code), capsys.readouterr().out.strip())
+
+    return _run
+
+
+@pytest.fixture
+def run_cli(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> Callable[..., CheckOutcome]:
+    """Run the plugin entry point with a raw command line."""
+
+    def _run(*args: str) -> CheckOutcome:
+        monkeypatch.setattr(sys, "argv", ["check_opnsense.py", *args])
+
+        with pytest.raises(SystemExit) as exc:
+            check_opnsense.main()
+
+        captured = capsys.readouterr()
+        return CheckOutcome(exc.value.code, (captured.out + captured.err).strip())
 
     return _run

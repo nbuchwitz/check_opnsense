@@ -367,6 +367,9 @@ class CheckOPNsense:
         elif interfaces_up:
             counter = len(interfaces_up)
             self.check_message = f"{counter} interface(s) are up\n"
+        else:
+            self.check_result = CheckState.UNKNOWN
+            self.check_message = "No interfaces found"
 
         for i in interfaces_down:
             self.check_message += f"[DOWN] interface {i} is down\n"

@@ -43,6 +43,19 @@ class TestInterfaces:
 
         assert result.state is CheckState.OK
 
+    def test_no_interfaces_is_unknown(self, run_check):
+        """An empty interface list means the API told us nothing, not that all is well."""
+        result = run_check("interfaces", api.interfaces())
+
+        assert result.state is CheckState.UNKNOWN
+        assert "No interfaces found" in result.message
+
+    def test_all_interfaces_filtered_is_unknown(self, run_check):
+        result = run_check("interfaces", api.interfaces(api.interface("em0")), "-f", "em0")
+
+        assert result.state is CheckState.UNKNOWN
+        assert "No interfaces found" in result.message
+
     def test_filtered_interface_is_ignored(self, run_check):
         result = run_check(
             "interfaces",
